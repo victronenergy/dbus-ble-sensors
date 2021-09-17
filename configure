@@ -1,0 +1,3 @@
+#! /bin/sh
+
+./ext/velib/mk/init_build.sh

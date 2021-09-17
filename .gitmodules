@@ -1,0 +1,3 @@
+[submodule "ext/velib"]
+	path = ext/velib
+	url = git@github.com:victronenergy/velib.git

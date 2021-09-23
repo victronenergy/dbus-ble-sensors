@@ -37,12 +37,7 @@ int ble_scan_open(const char *dev)
 		return -1;
 	}
 
-	err = hci_le_set_scan_enable(hci_sock, 0, 1, 1000);
-	if (err < 0) {
-		perror("hci_le_set_scan_enable(0)");
-		return -1;
-	}
-
+	hci_le_set_scan_enable(hci_sock, 0, 1, 1000);
 	err = hci_le_set_scan_parameters(hci_sock, 1, htobs(16), htobs(16),
 					 LE_RANDOM_ADDRESS, 0, 1000);
 	if (err < 0) {

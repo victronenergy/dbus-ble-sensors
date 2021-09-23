@@ -129,6 +129,7 @@ static const struct reg_info ruuvi_rawv2[] = {
 int ruuvi_handle_mfg(const uint8_t *buf, int len)
 {
 	const uint8_t *mac = buf + 18;
+	char name[16];
 	char dev[16];
 
 	if (len != 24)
@@ -143,6 +144,9 @@ int ruuvi_handle_mfg(const uint8_t *buf, int len)
 	ble_dbus_set_regs(dev, &ruuvi_tag,
 			  ruuvi_rawv2, array_size(ruuvi_rawv2),
 			  buf, len);
+
+	snprintf(name, sizeof(name), "Ruuvi %02X%02X", mac[4], mac[5]);
+	ble_dbus_set_name(dev, name);
 
 	return 0;
 }

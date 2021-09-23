@@ -1,5 +1,5 @@
 T = dbus-ble-sensors$(EXT)
-VERSION = 0.1
+VERSION = 0.2
 
 TARGETS += $T
 INSTALL_BIN += $T

@@ -12,6 +12,7 @@
 #include <velib/platform/task.h>
 #include <velib/types/ve_dbus_item.h>
 #include <velib/types/ve_values.h>
+#include <velib/utils/ve_item_utils.h>
 
 #include "ble-dbus.h"
 #include "ble-scan.h"
@@ -37,6 +38,7 @@ static void connect_dbus(void)
 	const char *service = "com.victronenergy.settings";
 	struct VeItem *root = veValueTree();
 	struct VeDbus *dbus;
+	VeVariant v;
 	int tries = 10;
 
 	dbus = veDbusGetDefaultBus();
@@ -66,6 +68,7 @@ static void connect_dbus(void)
 	}
 
 	control = veItemAlloc(NULL, "");
+	veItemCreateBasic(control, "Status", veVariantUn32(&v, 0));
 	veDbusItemInit(dbus, control);
 	veDbusChangeName(dbus, "com.victronenergy.ble");
 }

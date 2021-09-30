@@ -18,6 +18,22 @@
 static int hci_sock;
 static struct hci_filter filter;
 
+static int ble_scan_setup(int addr_type)
+{
+	int err;
+
+	err = hci_le_set_scan_parameters(hci_sock, 0, htobs(16), htobs(16),
+					 addr_type, 0, 1000);
+	if (err < 0)
+		return -2;
+
+	err = hci_le_set_scan_enable(hci_sock, 1, 0, 1000);
+	if (err < 0)
+		return -1;
+
+	return 0;
+}
+
 int ble_scan_open(const char *dev)
 {
 	socklen_t len;
@@ -38,16 +54,17 @@ int ble_scan_open(const char *dev)
 	}
 
 	hci_le_set_scan_enable(hci_sock, 0, 1, 1000);
-	err = hci_le_set_scan_parameters(hci_sock, 0, htobs(16), htobs(16),
-					 LE_RANDOM_ADDRESS, 0, 1000);
-	if (err < 0) {
-		perror("hci_le_set_scan_parameters");
-		return -1;
-	}
 
-	err = hci_le_set_scan_enable(hci_sock, 1, 0, 1000);
+	err = ble_scan_setup(LE_RANDOM_ADDRESS);
+	if (err < 0)
+		err = ble_scan_setup(LE_PUBLIC_ADDRESS);
+
 	if (err < 0) {
-		perror("hci_le_set_scan_enable(1)");
+		if (err == -2)
+			perror("hci_le_set_scan_parameters");
+		else
+			perror("hci_le_set_scan_enable");
+
 		return -1;
 	}
 

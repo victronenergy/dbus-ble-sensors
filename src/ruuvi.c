@@ -32,7 +32,7 @@ static const struct dev_info ruuvi_tag = {
 	.settings	= ruuvi_settings,
 };
 
-static const VeVariantUnitFmt veUnitKiloPascal1Dec = { 1, "kPa" };
+static const VeVariantUnitFmt veUnitHectoPascal = { 0, "hPa" };
 static const VeVariantUnitFmt veUnitG2Dec = { 2, "g" };
 static const VeVariantUnitFmt veUnitdBm = { 0, "dBm" };
 
@@ -58,12 +58,12 @@ static const struct reg_info ruuvi_rawv2[] = {
 	{
 		.type	= VE_UN16,
 		.offset	= 5,
-		.scale	= 1000,
-		.bias	= 50,
+		.scale	= 100,
+		.bias	= 500,
 		.inval	= 0xffff,
 		.flags	= REG_FLAG_BIG_ENDIAN | REG_FLAG_INVALID,
 		.name	= "Pressure",
-		.format	= &veUnitKiloPascal1Dec,
+		.format	= &veUnitHectoPascal,
 	},
 	{
 		.type	= VE_SN16,

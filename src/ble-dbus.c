@@ -232,6 +232,7 @@ static int ble_dbus_connect(struct VeItem *droot, const struct dev_info *info)
 	set_int(droot, "Connected", 1);
 	set_int(droot, "DeviceInstance", dev_instance);
 	set_str(droot, "ProductName", veProductGetName(info->product_id));
+	set_int(droot, "Status", 0);
 	veItemCreateProductId(droot, info->product_id);
 	veItemCreateSettingsProxy(settings, path, droot, "CustomName",
 				  veVariantFmt, &veUnitNone, &empty_string);

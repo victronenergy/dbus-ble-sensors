@@ -316,7 +316,7 @@ static void ble_dbus_expire(void)
 		veItemLocalValue(dev, &val);
 		veVariantToN32(&val);
 
-		if (tick - val.value.UN32 > 60 * TICKS_PER_SEC) {
+		if (tick - val.value.UN32 > 120 * TICKS_PER_SEC) {
 			struct VeDbus *dbus = veItemDbus(dev);
 
 			if (dbus)

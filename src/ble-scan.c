@@ -173,6 +173,11 @@ void ble_scan(void)
 		uint8_t *msg = buf;
 
 		len = read(hci_sock, buf, sizeof(buf));
+		if (len < 0 && errno != EAGAIN) {
+			perror("read");
+			pltExit(1);
+		}
+
 		if (len <= 0)
 			break;
 

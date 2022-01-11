@@ -18,8 +18,6 @@
 #include "ble-scan.h"
 #include "task.h"
 
-static const char *hci = "hci0";
-
 static struct VeItem *settings;
 static struct VeItem *control;
 
@@ -90,9 +88,9 @@ void taskInit(void)
 	sigaction(SIGINT, &sa, NULL);
 	sigaction(SIGTERM, &sa, NULL);
 
-	err = ble_scan_open(hci);
+	err = ble_scan_open();
 	if (err < 0) {
-		printf("%s: error opening device\n", hci);
+		printf("no device found\n");
 		pltExit(1);
 	}
 

@@ -4,6 +4,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <sys/ioctl.h>
 #include <bluetooth/bluetooth.h>
 #include <bluetooth/hci.h>
 #include <bluetooth/hci_lib.h>
@@ -34,22 +35,21 @@ static int ble_scan_setup(int addr_type)
 	return 0;
 }
 
-int ble_scan_open(const char *dev)
+static int ble_scan_open_dev(int id)
 {
 	socklen_t len;
 	int flags;
 	int err;
-	int id;
-
-	id = hci_devid(dev);
-	if (id < 0) {
-		perror("hci_devid");
-		return -1;
-	}
 
 	hci_sock = hci_open_dev(id);
 	if (hci_sock < 0) {
 		perror("hci_open_dev");
+		return -1;
+	}
+
+	err = ioctl(hci_sock, HCIDEVUP, id);
+	if (err && errno != EALREADY) {
+		perror("HCIDEVUP");
 		return -1;
 	}
 
@@ -96,6 +96,43 @@ int ble_scan_open(const char *dev)
 	pltWatchFileDescriptor(hci_sock);
 
 	return 0;
+}
+
+int ble_scan_open(void)
+{
+	struct hci_dev_list_req *dl;
+	int sock;
+	int err = -1;
+	int i;
+
+	sock = socket(AF_BLUETOOTH, SOCK_RAW, BTPROTO_HCI);
+	if (sock < 0) {
+		perror("socket");
+		return -1;
+	}
+
+	dl = malloc(sizeof(*dl) + HCI_MAX_DEV * sizeof(*dl->dev_req));
+	if (!dl)
+		goto out;
+
+	dl->dev_num = HCI_MAX_DEV;
+	err = ioctl(sock, HCIGETDEVLIST, dl);
+	if (err) {
+		perror("HCIGETDEVLIST");
+		goto out;
+	}
+
+	for (i = 0; i < dl->dev_num; i++) {
+		err = ble_scan_open_dev(dl->dev_req[i].dev_id);
+		if (!err)
+			break;
+	}
+
+out:
+	close(sock);
+	free(dl);
+
+	return err;
 }
 
 static int ble_handle_name(const bdaddr_t *addr, const uint8_t *buf, int len)

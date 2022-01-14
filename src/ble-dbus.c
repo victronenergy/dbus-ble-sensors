@@ -169,6 +169,11 @@ int ble_dbus_init(void)
 	return 0;
 }
 
+struct VeItem *ble_dbus_get_dev(const char *dev)
+{
+	return veItemByUid(devices, dev);
+}
+
 static void on_enabled_changed(struct VeItem *ena)
 {
 	struct VeItem *droot = veItemCtx(ena)->ptr;

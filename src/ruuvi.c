@@ -126,6 +126,54 @@ static const struct reg_info ruuvi_rawv2[] = {
 	},
 };
 
+static void ruuvi_update_status(const char *dev)
+{
+	struct VeItem *devroot;
+	struct VeItem *status;
+	struct VeItem *batv;
+	struct VeItem *temp;
+	VeVariant val;
+	float low;
+	int st;
+
+	devroot = ble_dbus_get_dev(dev);
+	if (!devroot)
+		return;
+
+	status = veItemByUid(devroot, "Status");
+	if (!status)
+		return;
+
+	batv = veItemByUid(devroot, "BatteryVoltage");
+	if (!batv)
+		return;
+
+	temp = veItemByUid(devroot, "Temperature");
+	if (!temp)
+		return;
+
+	veItemLocalValue(temp, &val);
+	veVariantToFloat(&val);
+
+	if (val.value.Float < -20)
+		low = 2.0;
+	else if (val.value.Float < 0)
+		low = 2.3;
+	else
+		low = 2.5;
+
+	veItemLocalValue(batv, &val);
+	veVariantToFloat(&val);
+
+	if (val.value.Float < low)
+		st = STATUS_BATT_LOW;
+	else
+		st = STATUS_OK;
+
+	veVariantUn32(&val, st);
+	veItemOwnerSet(status, &val);
+}
+
 int ruuvi_handle_mfg(const uint8_t *buf, int len)
 {
 	const uint8_t *mac = buf + 18;
@@ -147,6 +195,8 @@ int ruuvi_handle_mfg(const uint8_t *buf, int len)
 
 	snprintf(name, sizeof(name), "Ruuvi %02X%02X", mac[4], mac[5]);
 	ble_dbus_set_name(dev, name);
+
+	ruuvi_update_status(dev);
 
 	return 0;
 }

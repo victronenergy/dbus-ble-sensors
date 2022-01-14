@@ -40,7 +40,11 @@ struct reg_info {
 #define REG_FLAG_BIG_ENDIAN	(1 << 0)
 #define REG_FLAG_INVALID	(1 << 1)
 
+#define STATUS_OK		0
+#define STATUS_BATT_LOW		5
+
 int ble_dbus_init(void);
+struct VeItem *ble_dbus_get_dev(const char *dev);
 int ble_dbus_set_regs(const char *dev, const struct dev_info *info,
                       const struct reg_info *regs, int nregs,
                       const uint8_t *data, int len);

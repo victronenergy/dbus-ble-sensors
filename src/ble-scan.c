@@ -16,10 +16,15 @@
 #include "ruuvi.h"
 #include "task.h"
 
-static int hci_sock;
-static struct hci_filter filter;
+struct hci_device {
+	int id;
+	int sock;
+};
 
-static int ble_scan_setup(int addr_type)
+static struct hci_device devices[HCI_MAX_DEV];
+static int num_devices;
+
+static int ble_scan_setup(int hci_sock, int addr_type)
 {
 	int err;
 
@@ -35,11 +40,15 @@ static int ble_scan_setup(int addr_type)
 	return 0;
 }
 
-static int ble_scan_open_dev(int id)
+static int ble_scan_open_dev(int id, struct hci_device *dev)
 {
+	struct hci_filter filter;
 	socklen_t len;
+	int hci_sock;
 	int flags;
 	int err;
+
+	fprintf(stderr, "opening hci%d\n", id);
 
 	hci_sock = hci_open_dev(id);
 	if (hci_sock < 0) {
@@ -53,11 +62,14 @@ static int ble_scan_open_dev(int id)
 		return -1;
 	}
 
+	dev->id = id;
+	dev->sock = hci_sock;
+
 	hci_le_set_scan_enable(hci_sock, 0, 1, 1000);
 
-	err = ble_scan_setup(LE_RANDOM_ADDRESS);
+	err = ble_scan_setup(hci_sock, LE_RANDOM_ADDRESS);
 	if (err < 0)
-		err = ble_scan_setup(LE_PUBLIC_ADDRESS);
+		err = ble_scan_setup(hci_sock, LE_PUBLIC_ADDRESS);
 
 	if (err < 0) {
 		if (err == -2)
@@ -103,7 +115,7 @@ int ble_scan_open(void)
 	struct hci_dev_list_req *dl;
 	int sock;
 	int err = -1;
-	int i;
+	int i, j;
 
 	sock = socket(AF_BLUETOOTH, SOCK_RAW, BTPROTO_HCI);
 	if (sock < 0) {
@@ -122,17 +134,19 @@ int ble_scan_open(void)
 		goto out;
 	}
 
-	for (i = 0; i < dl->dev_num; i++) {
-		err = ble_scan_open_dev(dl->dev_req[i].dev_id);
+	for (i = 0, j = 0; i < dl->dev_num; i++) {
+		err = ble_scan_open_dev(dl->dev_req[i].dev_id, &devices[j]);
 		if (!err)
-			break;
+			j++;
 	}
+
+	num_devices = j;
 
 out:
 	close(sock);
 	free(dl);
 
-	return err;
+	return num_devices ? 0 : -1;
 }
 
 static int ble_handle_name(const bdaddr_t *addr, const uint8_t *buf, int len)
@@ -198,7 +212,7 @@ static int ble_parse_adv(const le_advertising_info *adv)
 	return 0;
 }
 
-void ble_scan(void)
+static void ble_read_dev(struct hci_device *dev)
 {
 	uint8_t buf[HCI_MAX_EVENT_SIZE];
 	hci_event_hdr *evt;
@@ -209,9 +223,10 @@ void ble_scan(void)
 	for (;;) {
 		uint8_t *msg = buf;
 
-		len = read(hci_sock, buf, sizeof(buf));
+		len = read(dev->sock, buf, sizeof(buf));
 		if (len < 0 && errno != EAGAIN) {
-			perror("read");
+			fprintf(stderr, "hci%d: read: %s\n", dev->id,
+				strerror(errno));
 			pltExit(1);
 		}
 
@@ -261,24 +276,42 @@ void ble_scan(void)
 	}
 }
 
-void ble_scan_close(void)
+void ble_scan(void)
+{
+	int i;
+
+	for (i = 0; i < num_devices; i++)
+		ble_read_dev(&devices[i]);
+}
+
+static void ble_close_dev(struct hci_device *dev)
 {
 	int flags;
 
-	flags = fcntl(hci_sock, F_GETFL);
+	flags = fcntl(dev->sock, F_GETFL);
 	if (flags > 0)
-		fcntl(hci_sock, F_SETFL, flags & ~O_NONBLOCK);
+		fcntl(dev->sock, F_SETFL, flags & ~O_NONBLOCK);
 
-	hci_le_set_scan_enable(hci_sock, 0, 1, 1000);
-	hci_close_dev(hci_sock);
+	hci_le_set_scan_enable(dev->sock, 0, 1, 1000);
+	hci_close_dev(dev->sock);
+}
+
+void ble_scan_close(void)
+{
+	int i;
+
+	for (i = 0; i < num_devices; i++)
+		ble_close_dev(&devices[i]);
 }
 
 void ble_scan_tick(void)
 {
 	static uint32_t ticks = 10 * TICKS_PER_SEC;
+	int i;
 
 	if (!--ticks) {
 		ticks = 10 * TICKS_PER_SEC;
-		hci_le_set_scan_enable(hci_sock, 1, 0, 1000);
+		for (i = 0; i < num_devices; i++)
+			hci_le_set_scan_enable(devices[i].sock, 1, 0, 1000);
 	}
 }

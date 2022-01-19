@@ -16,19 +16,28 @@
 #include "ruuvi.h"
 #include "task.h"
 
+#define SCAN_INTERVAL	90
+#define SCAN_WINDOW	15
+
 struct hci_device {
 	int id;
 	int sock;
+	int addr_type;
 };
 
 static struct hci_device devices[HCI_MAX_DEV];
 static int num_devices;
+static int cont_scan;
 
 static int ble_scan_setup(struct hci_device *dev, int addr_type)
 {
+	int interval = cont_scan ? SCAN_WINDOW : SCAN_INTERVAL;
 	int err;
 
-	err = hci_le_set_scan_parameters(dev->sock, 0, htobs(90), htobs(15),
+	hci_le_set_scan_enable(dev->sock, 0, 1, 1000);
+
+	err = hci_le_set_scan_parameters(dev->sock, 0,
+					 htobs(interval), htobs(SCAN_WINDOW),
 					 addr_type, 0, 1000);
 	if (err < 0)
 		return -2;
@@ -36,6 +45,8 @@ static int ble_scan_setup(struct hci_device *dev, int addr_type)
 	err = hci_le_set_scan_enable(dev->sock, 1, 0, 1000);
 	if (err < 0)
 		return -1;
+
+	dev->addr_type = addr_type;
 
 	return 0;
 }
@@ -64,8 +75,6 @@ static int ble_scan_open_dev(int id, struct hci_device *dev)
 
 	dev->id = id;
 	dev->sock = hci_sock;
-
-	hci_le_set_scan_enable(hci_sock, 0, 1, 1000);
 
 	err = ble_scan_setup(dev, LE_RANDOM_ADDRESS);
 	if (err < 0)
@@ -147,6 +156,19 @@ out:
 	free(dl);
 
 	return num_devices ? 0 : -1;
+}
+
+void ble_scan_continuous(int cont)
+{
+	int i;
+
+	if (cont == cont_scan)
+		return;
+
+	cont_scan = cont;
+
+	for (i = 0; i < num_devices; i++)
+		ble_scan_setup(&devices[i], devices[i].addr_type);
 }
 
 static int ble_handle_name(const bdaddr_t *addr, const uint8_t *buf, int len)

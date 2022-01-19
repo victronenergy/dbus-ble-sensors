@@ -12,6 +12,7 @@
 #include <velib/ve_regs.h>
 
 #include "ble-dbus.h"
+#include "ble-scan.h"
 #include "task.h"
 
 static struct VeSettingProperties empty_string = {
@@ -160,11 +161,28 @@ static int set_reg(struct VeItem *root, const struct reg_info *reg,
 static struct VeItem *devices;
 static uint32_t tick;
 
+static void on_contscan_changed(struct VeItem *cont)
+{
+	VeVariant val;
+
+	veItemLocalValue(cont, &val);
+	if (veVariantIsValid(&val))
+		ble_scan_continuous(val.value.SN32);
+}
+
 int ble_dbus_init(void)
 {
+	struct VeItem *settings = get_settings();
+	struct VeItem *ctl = get_control();
+	struct VeItem *cont;
+
 	devices = veItemAlloc(NULL, "");
 	if (!devices)
 		return -1;
+
+	cont = veItemCreateSettingsProxy(settings, "Settings/BleSensors",
+		ctl, "ContinuousScan", veVariantFmt, &veUnitNone, &bool_val);
+	veItemSetChanged(cont, on_contscan_changed);
 
 	return 0;
 }

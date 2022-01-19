@@ -36,7 +36,6 @@ static void connect_dbus(void)
 	const char *service = "com.victronenergy.settings";
 	struct VeItem *root = veValueTree();
 	struct VeDbus *dbus;
-	VeVariant v;
 	int tries = 10;
 
 	dbus = veDbusGetDefaultBus();
@@ -66,7 +65,6 @@ static void connect_dbus(void)
 	}
 
 	control = veItemAlloc(NULL, "");
-	veItemCreateBasic(control, "Status", veVariantUn32(&v, 0));
 	veDbusItemInit(dbus, control);
 	veDbusChangeName(dbus, "com.victronenergy.ble");
 }

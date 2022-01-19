@@ -24,16 +24,16 @@ struct hci_device {
 static struct hci_device devices[HCI_MAX_DEV];
 static int num_devices;
 
-static int ble_scan_setup(int hci_sock, int addr_type)
+static int ble_scan_setup(struct hci_device *dev, int addr_type)
 {
 	int err;
 
-	err = hci_le_set_scan_parameters(hci_sock, 0, htobs(90), htobs(15),
+	err = hci_le_set_scan_parameters(dev->sock, 0, htobs(90), htobs(15),
 					 addr_type, 0, 1000);
 	if (err < 0)
 		return -2;
 
-	err = hci_le_set_scan_enable(hci_sock, 1, 0, 1000);
+	err = hci_le_set_scan_enable(dev->sock, 1, 0, 1000);
 	if (err < 0)
 		return -1;
 
@@ -67,9 +67,9 @@ static int ble_scan_open_dev(int id, struct hci_device *dev)
 
 	hci_le_set_scan_enable(hci_sock, 0, 1, 1000);
 
-	err = ble_scan_setup(hci_sock, LE_RANDOM_ADDRESS);
+	err = ble_scan_setup(dev, LE_RANDOM_ADDRESS);
 	if (err < 0)
-		err = ble_scan_setup(hci_sock, LE_PUBLIC_ADDRESS);
+		err = ble_scan_setup(dev, LE_PUBLIC_ADDRESS);
 
 	if (err < 0) {
 		if (err == -2)

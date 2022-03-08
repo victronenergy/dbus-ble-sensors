@@ -13,6 +13,7 @@
 
 #include "ble-dbus.h"
 #include "ble-scan.h"
+#include "mopeka.h"
 #include "ruuvi.h"
 #include "task.h"
 
@@ -199,6 +200,9 @@ static int ble_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
 
 	if (mfg == MFG_ID_RUUVI)
 		return ruuvi_handle_mfg(buf, len);
+
+	else if (mfg == MFG_ID_MOPEKA)
+		return mopeka_handle_mfg(buf, len);
 
 	return 0;
 }

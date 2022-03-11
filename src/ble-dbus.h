@@ -44,6 +44,7 @@ struct reg_info {
 #define STATUS_BATT_LOW		5
 
 int ble_dbus_init(void);
+int ble_dbus_add_interface(const char *name, const char *addr);
 struct VeItem *ble_dbus_get_dev(const char *dev);
 int ble_dbus_set_regs(const char *dev, const struct dev_info *info,
                       const struct reg_info *regs, int nregs,

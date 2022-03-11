@@ -187,6 +187,17 @@ int ble_dbus_init(void)
 	return 0;
 }
 
+int ble_dbus_add_interface(const char *name, const char *addr)
+{
+	struct VeItem *ctl = get_control();
+	char buf[256];
+
+	snprintf(buf, sizeof(buf), "Interfaces/%s/Address", name);
+	set_str(ctl, buf, addr);
+
+	return 0;
+}
+
 struct VeItem *ble_dbus_get_dev(const char *dev)
 {
 	return veItemByUid(devices, dev);

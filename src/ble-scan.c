@@ -53,7 +53,9 @@ static int ble_scan_setup(struct hci_device *dev, int addr_type)
 
 static int ble_scan_open_dev(int id, struct hci_device *dev)
 {
+	struct hci_dev_info info;
 	struct hci_filter filter;
+	char addr[18];
 	socklen_t len;
 	int hci_sock;
 	int flags;
@@ -64,6 +66,14 @@ static int ble_scan_open_dev(int id, struct hci_device *dev)
 	hci_sock = hci_open_dev(id);
 	if (hci_sock < 0) {
 		perror("hci_open_dev");
+		return -1;
+	}
+
+	info.dev_id = id;
+
+	err = ioctl(hci_sock, HCIGETDEVINFO, &info);
+	if (err) {
+		perror("HCIGETDEVINFO");
 		return -1;
 	}
 
@@ -113,6 +123,9 @@ static int ble_scan_open_dev(int id, struct hci_device *dev)
 	err = fcntl(hci_sock, F_SETFL, flags | O_NONBLOCK);
 	if (err < 0)
 		return -1;
+
+	ba2str(&info.bdaddr, addr);
+	ble_dbus_add_interface(info.name, addr);
 
 	pltWatchFileDescriptor(hci_sock);
 

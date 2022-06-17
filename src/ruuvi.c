@@ -32,10 +32,6 @@ static const struct dev_info ruuvi_tag = {
 	.settings	= ruuvi_settings,
 };
 
-static const VeVariantUnitFmt veUnitHectoPascal = { 0, "hPa" };
-static const VeVariantUnitFmt veUnitG2Dec = { 2, "g" };
-static const VeVariantUnitFmt veUnitdBm = { 0, "dBm" };
-
 static const struct reg_info ruuvi_rawv2[] = {
 	{
 		.type	= VE_SN16,

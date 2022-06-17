@@ -15,6 +15,10 @@
 #include "ble-scan.h"
 #include "task.h"
 
+const VeVariantUnitFmt veUnitHectoPascal = { 0, "hPa" };
+const VeVariantUnitFmt veUnitG2Dec = { 2, "g" };
+const VeVariantUnitFmt veUnitdBm = { 0, "dBm" };
+
 static struct VeSettingProperties empty_string = {
 	.type = VE_HEAP_STR,
 	.def.value.Ptr = "",

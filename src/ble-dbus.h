@@ -6,6 +6,7 @@
 #include <velib/types/types.h>
 #include <velib/types/variant.h>
 #include <velib/types/ve_item.h>
+#include <velib/utils/ve_item_utils.h>
 
 #define array_size(a) (sizeof(a) / sizeof(a[0]))
 
@@ -42,6 +43,10 @@ struct reg_info {
 
 #define STATUS_OK		0
 #define STATUS_BATT_LOW		5
+
+extern const VeVariantUnitFmt veUnitHectoPascal;
+extern const VeVariantUnitFmt veUnitG2Dec;
+extern const VeVariantUnitFmt veUnitdBm;
 
 int ble_dbus_init(void);
 int ble_dbus_add_interface(const char *name, const char *addr);

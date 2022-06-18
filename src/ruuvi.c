@@ -173,6 +173,7 @@ static void ruuvi_update_status(const char *dev)
 int ruuvi_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
 {
 	const uint8_t *mac = buf + 18;
+	struct VeItem *root;
 	char name[16];
 	char dev[16];
 
@@ -185,14 +186,17 @@ int ruuvi_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
 	snprintf(dev, sizeof(dev), "%02x%02x%02x%02x%02x%02x",
 		 mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 
-	ble_dbus_set_regs(dev, &ruuvi_tag,
-			  ruuvi_rawv2, array_size(ruuvi_rawv2),
-			  buf, len);
+	root = ble_dbus_create(dev, &ruuvi_tag);
+	if (!root)
+		return -1;
+
+	ble_dbus_set_regs(root, ruuvi_rawv2, array_size(ruuvi_rawv2), buf, len);
 
 	snprintf(name, sizeof(name), "Ruuvi %02X%02X", mac[4], mac[5]);
-	ble_dbus_set_name(dev, name);
+	ble_dbus_set_name(root, name);
 
 	ruuvi_update_status(dev);
+	ble_dbus_update(root);
 
 	return 0;
 }

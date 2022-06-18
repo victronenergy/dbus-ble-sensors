@@ -224,40 +224,70 @@ static void on_enabled_changed(struct VeItem *ena)
 	veDbusDisconnect(dbus);
 }
 
-static int ble_dbus_connect(struct VeItem *droot, const struct dev_info *info)
+struct VeItem *ble_dbus_create(const char *dev, const struct dev_info *info)
 {
-	const char *dev = veItemId(droot);
+	struct VeItem *droot;
 	struct VeItem *settings = get_settings();
 	struct VeItem *ctl = get_control();
 	struct VeItem *ena;
-	struct VeDbus *dbus;
 	VeVariant val;
-	int dev_instance;
 	char dev_id[32];
 	char path[64];
 	char name[64];
 	int i;
 
-	dbus = veItemDbus(droot);
-	if (dbus)
-		return 0;
+	droot = ble_dbus_get_dev(dev);
+	if (droot)
+		goto out;
+
+	droot = veItemGetOrCreateUid(devices, dev);
+	veItemCtx(droot)->ptr = unconst(info);
+	veItemLocalSet(droot, veVariantUn32(&val, tick));
 
 	snprintf(dev_id, sizeof(dev_id), "%s%s", info->dev_prefix, dev);
 	snprintf(path, sizeof(path), "Settings/Devices/%s", dev_id);
 
 	snprintf(name, sizeof(name), "Devices/%s/Enabled", dev_id);
-	ena = veItemByUid(ctl, name);
+	ena = veItemCreateSettingsProxyId(settings, path, ctl,
+		"Enabled", veVariantFmt, &veUnitNone, &bool_val, name);
+	veItemCtx(ena)->ptr = droot;
+	veItemSetChanged(ena, on_enabled_changed);
 
-	if (!ena) {
-		ena = veItemCreateSettingsProxyId(settings, path, ctl,
-			"Enabled", veVariantFmt, &veUnitNone, &bool_val, name);
-		veItemCtx(ena)->ptr = droot;
-		veItemSetChanged(ena, on_enabled_changed);
-	}
+	veItemCreateSettingsProxy(settings, path, droot, "CustomName",
+				  veVariantFmt, &veUnitNone, &empty_string);
 
-	veItemLocalValue(ena, &val);
-	if (!veVariantIsValid(&val) || !val.value.SN32)
+	for (i = 0; i < info->num_settings; i++)
+		veItemCreateSettingsProxy(settings, path, droot,
+					  info->settings[i].name,
+					  veVariantFmt, &veUnitNone,
+					  info->settings[i].props);
+
+out:
+	veItemLocalSet(droot, veVariantUn32(&val, tick));
+
+	return droot;
+}
+
+static int ble_dbus_connect(struct VeItem *droot)
+{
+	const char *dev = veItemId(droot);
+	const struct dev_info *info;
+	struct VeDbus *dbus;
+	int dev_instance;
+	char dev_id[32];
+	char path[64];
+	char name[64];
+
+	dbus = veItemDbus(droot);
+	if (dbus)
 		return 0;
+
+	info = veItemCtx(droot)->ptr;
+	if (!info)
+		return -1;
+
+	snprintf(dev_id, sizeof(dev_id), "%s%s", info->dev_prefix, dev);
+	snprintf(path, sizeof(path), "Settings/Devices/%s", dev_id);
 
 	dev_instance = veDbusGetVrmDeviceInstance(dev_id, info->dev_class,
 						  info->dev_instance);
@@ -272,14 +302,6 @@ static int ble_dbus_connect(struct VeItem *droot, const struct dev_info *info)
 	set_str(droot, "ProductName", veProductGetName(info->product_id));
 	set_int(droot, "Status", 0);
 	veItemCreateProductId(droot, info->product_id);
-	veItemCreateSettingsProxy(settings, path, droot, "CustomName",
-				  veVariantFmt, &veUnitNone, &empty_string);
-
-	for (i = 0; i < info->num_settings; i++)
-		veItemCreateSettingsProxy(settings, path, droot,
-					  info->settings[i].name,
-					  veVariantFmt, &veUnitNone,
-					  info->settings[i].props);
 
 	snprintf(name, sizeof(name), "com.victronenergy.%s.%s",
 		 info->role, dev_id);
@@ -296,40 +318,24 @@ static int ble_dbus_connect(struct VeItem *droot, const struct dev_info *info)
 	return 0;
 }
 
-int ble_dbus_set_regs(const char *dev, const struct dev_info *info,
+int ble_dbus_set_regs(struct VeItem *droot,
 		      const struct reg_info *regs, int nregs,
 		      const uint8_t *data, int len)
 {
-	struct VeItem *droot;
-	VeVariant v;
 	int i;
-
-	droot = veItemByUid(devices, dev);
-	if (!droot) {
-		droot = veItemGetOrCreateUid(devices, dev);
-		veItemCtx(droot)->ptr = unconst(info);
-	}
-
-	veItemLocalSet(droot, veVariantUn32(&v, tick));
 
 	for (i = 0; i < nregs; i++)
 		set_reg(droot, &regs[i], data, len);
 
-	ble_dbus_connect(droot, info);
-
 	return 0;
 }
 
-int ble_dbus_set_name(const char *dev, const char *name)
+int ble_dbus_set_name(struct VeItem *droot, const char *name)
 {
+	const char *dev = veItemId(droot);
 	const struct dev_info *info;
-	struct VeItem *droot;
 	struct VeItem *ctl;
 	char buf[64];
-
-	droot = veItemByUid(devices, dev);
-	if (!droot)
-		return -1;
 
 	info = veItemCtx(droot)->ptr;
 	if (!info)
@@ -339,6 +345,13 @@ int ble_dbus_set_name(const char *dev, const char *name)
 	snprintf(buf, sizeof(buf), "Devices/%s%s/Name", info->dev_prefix, dev);
 	set_str(droot, "DeviceName", name);
 	set_str(ctl, buf, name);
+
+	return 0;
+}
+
+int ble_dbus_update(struct VeItem *droot)
+{
+	ble_dbus_connect(droot);
 
 	return 0;
 }

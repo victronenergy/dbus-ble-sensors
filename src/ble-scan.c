@@ -195,6 +195,7 @@ void ble_scan_continuous(int cont)
 
 static int ble_handle_name(const bdaddr_t *addr, const uint8_t *buf, int len)
 {
+	struct VeItem *root;
 	char name[256];
 	char dev[16];
 
@@ -205,7 +206,11 @@ static int ble_handle_name(const bdaddr_t *addr, const uint8_t *buf, int len)
 	memcpy(name, buf, len);
 	name[len] = 0;
 
-	return ble_dbus_set_name(dev, name);
+	root = ble_dbus_get_dev(dev);
+	if (root)
+		ble_dbus_set_name(root, name);
+
+	return 0;
 }
 
 static int ble_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)

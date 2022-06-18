@@ -275,6 +275,8 @@ struct VeItem *ble_dbus_create(const char *dev, const struct dev_info *info)
 					  veVariantFmt, &veUnitNone,
 					  info->settings[i].props);
 
+	veItemSendPendingChanges(ctl);
+
 out:
 	veItemLocalSet(droot, veVariantUn32(&val, tick));
 
@@ -365,6 +367,7 @@ int ble_dbus_set_name(struct VeItem *droot, const char *name)
 int ble_dbus_update(struct VeItem *droot)
 {
 	ble_dbus_connect(droot);
+	veItemSendPendingChanges(droot);
 
 	return 0;
 }
@@ -402,5 +405,6 @@ void ble_dbus_tick(void)
 	if (!--dev_expire) {
 		dev_expire = 10 * TICKS_PER_SEC;
 		ble_dbus_expire();
+		veItemSendPendingChanges(get_control());
 	}
 }

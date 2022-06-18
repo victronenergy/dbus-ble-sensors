@@ -174,7 +174,7 @@ static void ruuvi_update_status(const char *dev)
 	veItemOwnerSet(status, &val);
 }
 
-int ruuvi_handle_mfg(const uint8_t *buf, int len)
+int ruuvi_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
 {
 	const uint8_t *mac = buf + 18;
 	char name[16];

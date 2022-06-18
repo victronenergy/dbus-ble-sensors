@@ -211,7 +211,7 @@ static int ble_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
 	len -= 2;
 
 	if (mfg == MFG_ID_RUUVI)
-		return ruuvi_handle_mfg(buf, len);
+		return ruuvi_handle_mfg(addr, buf, len);
 
 	return 0;
 }

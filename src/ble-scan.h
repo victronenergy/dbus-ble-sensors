@@ -1,6 +1,7 @@
 #ifndef BLE_SCAN_H
 #define BLE_SCAN_H
 
+#define MFG_ID_NORDIC	0x0059
 #define MFG_ID_RUUVI	0x0499
 
 int ble_scan_open(void);

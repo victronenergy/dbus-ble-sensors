@@ -13,6 +13,7 @@
 
 #include "ble-dbus.h"
 #include "ble-scan.h"
+#include "mopeka.h"
 #include "ruuvi.h"
 #include "task.h"
 
@@ -26,6 +27,7 @@ struct mfg_data_handler {
 
 static const struct mfg_data_handler mfg_data_handlers[] = {
 	{ MFG_ID_RUUVI,		ruuvi_handle_mfg },
+	{ MFG_ID_NORDIC,	mopeka_handle_mfg },
 };
 
 struct hci_device {

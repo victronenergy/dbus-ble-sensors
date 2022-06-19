@@ -34,6 +34,8 @@ struct reg_info {
 	float		bias;
 	uint32_t	inval;
 	uint32_t	flags;
+	int		(*xlate)(struct VeItem *root, VeVariant *val,
+				 uint64_t rawval);
 	const char	*name;
 	const void	*format;
 };

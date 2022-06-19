@@ -63,7 +63,7 @@ static int64_t sext(int64_t v, int b)
 }
 
 static int load_int(VeVariant *val, const struct reg_info *reg,
-		    const uint8_t *buf, int len)
+		    const uint8_t *buf, int len, struct VeItem *root)
 {
 	VeDataBasicType type = reg->type;
 	float scale = reg->scale;
@@ -94,7 +94,9 @@ static int load_int(VeVariant *val, const struct reg_info *reg,
 	if ((reg->flags & REG_FLAG_INVALID) && v == reg->inval)
 		return -1;
 
-	if (scale) {
+	if (reg->xlate) {
+		return reg->xlate(root, val, v);
+	} else if (scale) {
 		if (type_issigned(type))
 			f = sext(v, 8 * size);
 		else
@@ -110,7 +112,7 @@ static int load_int(VeVariant *val, const struct reg_info *reg,
 }
 
 static int load_reg(const struct reg_info *reg, VeVariant *val,
-		     const uint8_t *buf, int len)
+		    const uint8_t *buf, int len, struct VeItem *root)
 {
 	buf += reg->offset;
 	len -= reg->offset;
@@ -118,7 +120,7 @@ static int load_reg(const struct reg_info *reg, VeVariant *val,
 	if (!type_isint(reg->type))
 		return -1;
 
-	return load_int(val, reg, buf, len);
+	return load_int(val, reg, buf, len, root);
 }
 
 int ble_dbus_set_item(struct VeItem *root, const char *path, VeVariant *val,
@@ -157,7 +159,7 @@ static int set_reg(struct VeItem *root, const struct reg_info *reg,
 	VeVariant val;
 	int err;
 
-	err = load_reg(reg, &val, buf, len);
+	err = load_reg(reg, &val, buf, len, root);
 	if (err)
 		return err;
 

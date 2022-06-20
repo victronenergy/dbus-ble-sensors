@@ -50,6 +50,8 @@ struct reg_info {
 extern const VeVariantUnitFmt veUnitHectoPascal;
 extern const VeVariantUnitFmt veUnitG2Dec;
 extern const VeVariantUnitFmt veUnitdBm;
+extern const VeVariantUnitFmt veUnitcm;
+extern const VeVariantUnitFmt veUnitm3;
 
 int ble_dbus_init(void);
 int ble_dbus_add_interface(const char *name, const char *addr);

@@ -57,6 +57,10 @@ int ble_dbus_set_regs(struct VeItem *root,
                       const struct reg_info *regs, int nregs,
                       const uint8_t *data, int len);
 int ble_dbus_set_name(struct VeItem *root, const char *name);
+int ble_dbus_set_item(struct VeItem *root, const char *path, VeVariant *val,
+		      const void *format);
+int ble_dbus_set_str(struct VeItem *root, const char *path, const char *str);
+int ble_dbus_set_int(struct VeItem *root, const char *path, int num);
 int ble_dbus_update(struct VeItem *root);
 void ble_dbus_tick(void);
 

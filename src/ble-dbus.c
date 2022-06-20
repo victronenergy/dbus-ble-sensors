@@ -121,8 +121,8 @@ static int load_reg(const struct reg_info *reg, VeVariant *val,
 	return load_int(val, reg, buf, len);
 }
 
-static int set_item(struct VeItem *root, const char *path, VeVariant *val,
-		    const void *format)
+int ble_dbus_set_item(struct VeItem *root, const char *path, VeVariant *val,
+		      const void *format)
 {
 	struct VeItem *item = veItemGetOrCreateUid(root, path);
 
@@ -137,16 +137,18 @@ static int set_item(struct VeItem *root, const char *path, VeVariant *val,
 	return 0;
 }
 
-static int set_str(struct VeItem *root, const char *path, const char *str)
+int ble_dbus_set_str(struct VeItem *root, const char *path, const char *str)
 {
 	VeVariant val;
-	return set_item(root, path, veVariantHeapStr(&val, str), &veUnitNone);
+	return ble_dbus_set_item(root, path, veVariantHeapStr(&val, str),
+				 &veUnitNone);
 }
 
-static int set_int(struct VeItem *root, const char *path, int num)
+int ble_dbus_set_int(struct VeItem *root, const char *path, int num)
 {
 	VeVariant val;
-	return set_item(root, path, veVariantUn32(&val, num), &veUnitNone);
+	return ble_dbus_set_item(root, path, veVariantUn32(&val, num),
+				 &veUnitNone);
 }
 
 static int set_reg(struct VeItem *root, const struct reg_info *reg,
@@ -159,7 +161,7 @@ static int set_reg(struct VeItem *root, const struct reg_info *reg,
 	if (err)
 		return err;
 
-	return set_item(root, reg->name, &val, reg->format);
+	return ble_dbus_set_item(root, reg->name, &val, reg->format);
 }
 
 static struct VeItem *devices;
@@ -197,7 +199,7 @@ int ble_dbus_add_interface(const char *name, const char *addr)
 	char buf[256];
 
 	snprintf(buf, sizeof(buf), "Interfaces/%s/Address", name);
-	set_str(ctl, buf, addr);
+	ble_dbus_set_str(ctl, buf, addr);
 
 	return 0;
 }
@@ -309,13 +311,14 @@ static int ble_dbus_connect(struct VeItem *droot)
 	if (dev_instance < 0)
 		return -1;
 
-	set_str(droot, "Mgmt/ProcessName", pltProgramName());
-	set_str(droot, "Mgmt/ProcessVersion", VERSION);
-	set_str(droot, "Mgmt/Connection", "Bluetooth LE");
-	set_int(droot, "Connected", 1);
-	set_int(droot, "DeviceInstance", dev_instance);
-	set_str(droot, "ProductName", veProductGetName(info->product_id));
-	set_int(droot, "Status", 0);
+	ble_dbus_set_str(droot, "Mgmt/ProcessName", pltProgramName());
+	ble_dbus_set_str(droot, "Mgmt/ProcessVersion", VERSION);
+	ble_dbus_set_str(droot, "Mgmt/Connection", "Bluetooth LE");
+	ble_dbus_set_int(droot, "Connected", 1);
+	ble_dbus_set_int(droot, "DeviceInstance", dev_instance);
+	ble_dbus_set_str(droot, "ProductName",
+			 veProductGetName(info->product_id));
+	ble_dbus_set_int(droot, "Status", 0);
 	veItemCreateProductId(droot, info->product_id);
 
 	snprintf(name, sizeof(name), "com.victronenergy.%s.%s",
@@ -358,8 +361,8 @@ int ble_dbus_set_name(struct VeItem *droot, const char *name)
 
 	ctl = get_control();
 	snprintf(buf, sizeof(buf), "Devices/%s%s/Name", info->dev_prefix, dev);
-	set_str(droot, "DeviceName", name);
-	set_str(ctl, buf, name);
+	ble_dbus_set_str(droot, "DeviceName", name);
+	ble_dbus_set_str(ctl, buf, name);
 
 	return 0;
 }

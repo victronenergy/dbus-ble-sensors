@@ -52,6 +52,7 @@ int ble_dbus_init(void);
 int ble_dbus_add_interface(const char *name, const char *addr);
 struct VeItem *ble_dbus_create(const char *dev, const struct dev_info *info);
 struct VeItem *ble_dbus_get_dev(const char *dev);
+int ble_dbus_is_enabled(struct VeItem *root);
 int ble_dbus_set_regs(struct VeItem *root,
                       const struct reg_info *regs, int nregs,
                       const uint8_t *data, int len);

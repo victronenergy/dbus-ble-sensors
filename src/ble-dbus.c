@@ -207,6 +207,19 @@ struct VeItem *ble_dbus_get_dev(const char *dev)
 	return veItemByUid(devices, dev);
 }
 
+int ble_dbus_is_enabled(struct VeItem *droot)
+{
+	const struct dev_info *info = veItemCtx(droot)->ptr;
+	const char *dev = veItemId(droot);
+	struct VeItem *ctl = get_control();
+	char name[64];
+
+	snprintf(name, sizeof(name), "Devices/%s%s/Enabled",
+		 info->dev_prefix, dev);
+
+	return veItemValueInt(ctl, name) == 1;
+}
+
 static void on_enabled_changed(struct VeItem *ena)
 {
 	struct VeItem *droot = veItemCtx(ena)->ptr;

@@ -19,6 +19,15 @@
 #define SCAN_INTERVAL	90
 #define SCAN_WINDOW	15
 
+struct mfg_data_handler {
+	uint16_t id;
+	int (*handler)(const bdaddr_t *addr, const uint8_t *buf, int len);
+};
+
+static const struct mfg_data_handler mfg_data_handlers[] = {
+	{ MFG_ID_RUUVI,		ruuvi_handle_mfg },
+};
+
 struct hci_device {
 	int id;
 	int sock;
@@ -202,6 +211,8 @@ static int ble_handle_name(const bdaddr_t *addr, const uint8_t *buf, int len)
 static int ble_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
 {
 	int mfg;
+	int err;
+	int i;
 
 	if (len < 2)
 		return -1;
@@ -210,8 +221,13 @@ static int ble_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
 	buf += 2;
 	len -= 2;
 
-	if (mfg == MFG_ID_RUUVI)
-		return ruuvi_handle_mfg(addr, buf, len);
+	for (i = 0; i < array_size(mfg_data_handlers); i++) {
+		if (mfg == mfg_data_handlers[i].id) {
+			err = mfg_data_handlers[i].handler(addr, buf, len);
+			if (!err)
+				break;
+		}
+	}
 
 	return 0;
 }

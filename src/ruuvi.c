@@ -190,10 +190,13 @@ int ruuvi_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
 	if (!root)
 		return -1;
 
-	ble_dbus_set_regs(root, ruuvi_rawv2, array_size(ruuvi_rawv2), buf, len);
-
 	snprintf(name, sizeof(name), "Ruuvi %02X%02X", mac[4], mac[5]);
 	ble_dbus_set_name(root, name);
+
+	if (!ble_dbus_is_enabled(root))
+		return 0;
+
+	ble_dbus_set_regs(root, ruuvi_rawv2, array_size(ruuvi_rawv2), buf, len);
 
 	ruuvi_update_status(dev);
 	ble_dbus_update(root);

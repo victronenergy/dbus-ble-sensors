@@ -376,18 +376,26 @@ int ble_dbus_set_regs(struct VeItem *droot,
 int ble_dbus_set_name(struct VeItem *droot, const char *name)
 {
 	const char *dev = veItemId(droot);
-	const struct dev_info *info;
+	const struct dev_info *info = veItemCtx(droot)->ptr;
+	const char *dname = name;
 	struct VeItem *ctl;
+	struct VeItem *cname;
+	VeVariant v;
 	char buf[64];
 
-	info = veItemCtx(droot)->ptr;
-	if (!info)
-		return -1;
+	cname = veItemByUid(droot, "CustomName");
+
+	if (veItemIsValid(cname)) {
+		veItemLocalValue(cname, &v);
+		dname = v.value.Ptr;
+		if (!dname[0])
+			dname = name;
+	}
 
 	ctl = get_control();
 	snprintf(buf, sizeof(buf), "Devices/%s%s/Name", info->dev_prefix, dev);
 	ble_dbus_set_str(droot, "DeviceName", name);
-	ble_dbus_set_str(ctl, buf, name);
+	ble_dbus_set_str(ctl, buf, dname);
 
 	return 0;
 }

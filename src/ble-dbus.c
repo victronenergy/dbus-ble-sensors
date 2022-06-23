@@ -252,7 +252,6 @@ struct VeItem *ble_dbus_create(const char *dev, const struct dev_info *info,
 	char dev_id[32];
 	char path[64];
 	char name[64];
-	int i;
 
 	droot = ble_dbus_get_dev(dev);
 	if (droot)
@@ -274,11 +273,7 @@ struct VeItem *ble_dbus_create(const char *dev, const struct dev_info *info,
 	veItemCreateSettingsProxy(settings, path, droot, "CustomName",
 				  veVariantFmt, &veUnitNone, &empty_string);
 
-	for (i = 0; i < info->num_settings; i++)
-		veItemCreateSettingsProxy(settings, path, droot,
-					  info->settings[i].name,
-					  veVariantFmt, &veUnitNone,
-					  info->settings[i].props);
+	ble_dbus_add_settings(droot, info->settings, info->num_settings);
 
 	if (info->init)
 		info->init(droot, data);
@@ -289,6 +284,28 @@ out:
 	veItemLocalSet(droot, veVariantUn32(&val, tick));
 
 	return droot;
+}
+
+int ble_dbus_add_settings(struct VeItem *droot,
+			  const struct dev_setting *dev_settings,
+			  int num_settings)
+{
+	const char *dev = veItemId(droot);
+	const struct dev_info *info = veItemCtx(droot)->ptr;
+	struct VeItem *settings = get_settings();
+	char path[64];
+	int i;
+
+	snprintf(path, sizeof(path), "Settings/Devices/%s%s",
+		 info->dev_prefix, dev);
+
+	for (i = 0; i < num_settings; i++)
+		veItemCreateSettingsProxy(settings, path, droot,
+					  dev_settings[i].name,
+					  veVariantFmt, &veUnitNone,
+					  dev_settings[i].props);
+
+	return 0;
 }
 
 static int ble_dbus_connect(struct VeItem *droot)

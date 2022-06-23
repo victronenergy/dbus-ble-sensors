@@ -241,7 +241,8 @@ static void on_enabled_changed(struct VeItem *ena)
 	veDbusDisconnect(dbus);
 }
 
-struct VeItem *ble_dbus_create(const char *dev, const struct dev_info *info)
+struct VeItem *ble_dbus_create(const char *dev, const struct dev_info *info,
+			       void *data)
 {
 	struct VeItem *droot;
 	struct VeItem *settings = get_settings();
@@ -278,6 +279,9 @@ struct VeItem *ble_dbus_create(const char *dev, const struct dev_info *info)
 					  info->settings[i].name,
 					  veVariantFmt, &veUnitNone,
 					  info->settings[i].props);
+
+	if (info->init)
+		info->init(droot, data);
 
 	veItemSendPendingChanges(ctl);
 

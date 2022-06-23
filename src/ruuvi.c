@@ -122,19 +122,14 @@ static const struct reg_info ruuvi_rawv2[] = {
 	},
 };
 
-static void ruuvi_update_status(const char *dev)
+static void ruuvi_update_status(struct VeItem *devroot)
 {
-	struct VeItem *devroot;
 	struct VeItem *status;
 	struct VeItem *batv;
 	struct VeItem *temp;
 	VeVariant val;
 	float low;
 	int st;
-
-	devroot = ble_dbus_get_dev(dev);
-	if (!devroot)
-		return;
 
 	status = veItemByUid(devroot, "Status");
 	if (!status)
@@ -198,7 +193,7 @@ int ruuvi_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
 
 	ble_dbus_set_regs(root, ruuvi_rawv2, array_size(ruuvi_rawv2), buf, len);
 
-	ruuvi_update_status(dev);
+	ruuvi_update_status(root);
 	ble_dbus_update(root);
 
 	return 0;

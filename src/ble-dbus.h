@@ -18,7 +18,6 @@ struct dev_setting {
 struct dev_info {
 	uint16_t	product_id;
 	uint16_t	dev_instance;
-	const char	*dev_class;
 	const char	*dev_prefix;
 	const char	*role;
 	int		num_settings;

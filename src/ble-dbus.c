@@ -331,7 +331,7 @@ static int ble_dbus_connect(struct VeItem *droot)
 	snprintf(dev_id, sizeof(dev_id), "%s%s", info->dev_prefix, dev);
 	snprintf(path, sizeof(path), "Settings/Devices/%s", dev_id);
 
-	dev_instance = veDbusGetVrmDeviceInstance(dev_id, info->dev_class,
+	dev_instance = veDbusGetVrmDeviceInstance(dev_id, info->role,
 						  info->dev_instance);
 	if (dev_instance < 0)
 		return -1;

@@ -25,7 +25,6 @@ static const struct dev_setting ruuvi_settings[] = {
 static const struct dev_info ruuvi_tag = {
 	.product_id	= VE_PROD_ID_RUUVI_TAG,
 	.dev_instance	= 20,
-	.dev_class	= "analog",
 	.dev_prefix	= "ruuvi_",
 	.role		= "temperature",
 	.num_settings	= array_size(ruuvi_settings),

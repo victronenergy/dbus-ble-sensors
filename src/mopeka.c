@@ -97,7 +97,6 @@ static int mopeka_init(struct VeItem *root, void *data)
 static const struct dev_info mopeka_sensor = {
 	.product_id	= VE_PROD_ID_MOPEKA_SENSOR,
 	.dev_instance	= 20,
-	.dev_class	= "analog",
 	.dev_prefix	= "mopeka_",
 	.role		= "tank",
 	.num_settings	= array_size(mopeka_settings),

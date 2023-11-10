@@ -245,10 +245,17 @@ static int ble_parse_adv(const le_advertising_info *adv)
 	int len = adv->length;
 
 	while (len >= 2) {
-		int adlen = *buf++ - 1;
-		int adtyp = *buf++;
+		int adlen, adtyp;
 
-		len -= 2;
+		adlen = *buf++;
+		len--;
+
+		if (!adlen || len < adlen)
+			break;
+
+		adtyp = *buf++;
+		adlen--;
+		len--;
 
 		if (len < adlen)
 			break;

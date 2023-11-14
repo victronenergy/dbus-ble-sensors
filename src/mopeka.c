@@ -36,6 +36,7 @@ struct mopeka_model {
 };
 
 #define MOPEKA_FLAG_BUTANE	(1 << 0)
+#define MOPEKA_FLAG_TOPDOWN	(1 << 1)
 
 static const struct mopeka_model *mopeka_get_model(uint32_t hwid);
 
@@ -76,6 +77,9 @@ static const struct dev_setting mopeka_settings[] = {
 		.name	= "FluidType",
 		.props	= &fluid_type_props,
 	},
+};
+
+static const struct dev_setting mopeka_bottomup_settings[] = {
 	{
 		.name	= "RawValueEmpty",
 		.props	= &empty_props,
@@ -83,6 +87,17 @@ static const struct dev_setting mopeka_settings[] = {
 	{
 		.name	= "RawValueFull",
 		.props	= &full_props,
+	},
+};
+
+static const struct dev_setting mopeka_topdown_settings[] = {
+	{
+		.name	= "RawValueEmpty",
+		.props	= &full_props,
+	},
+	{
+		.name	= "RawValueFull",
+		.props	= &empty_props,
 	},
 };
 
@@ -120,6 +135,13 @@ static int mopeka_init(struct VeItem *root, void *data)
 		ble_dbus_add_settings(root, mopeka_lpg_settings,
 				      array_size(mopeka_lpg_settings));
 	}
+
+	if (model->flags & MOPEKA_FLAG_TOPDOWN)
+		ble_dbus_add_settings(root, mopeka_topdown_settings,
+				      array_size(mopeka_topdown_settings));
+	else
+		ble_dbus_add_settings(root, mopeka_bottomup_settings,
+				      array_size(mopeka_bottomup_settings));
 
 	return 0;
 }
@@ -323,7 +345,9 @@ static const struct reg_info mopeka_adv[] = {
 
 static void mopeka_update_level(struct VeItem *root)
 {
+	const struct mopeka_model *model;
 	struct VeItem *item;
+	int hwid;
 	float capacity;
 	int height;
 	int empty;
@@ -331,6 +355,11 @@ static void mopeka_update_level(struct VeItem *root)
 	float level;
 	float remain;
 	VeVariant v;
+
+	hwid = veItemValueInt(root, "HardwareID");
+	model = mopeka_get_model(hwid);
+	if (!model)
+		return;
 
 	item = veItemByUid(root, "Capacity");
 	if (!item)
@@ -344,11 +373,12 @@ static void mopeka_update_level(struct VeItem *root)
 	empty = veItemValueInt(root, "RawValueEmpty");
 	full = veItemValueInt(root, "RawValueFull");
 
-	if (empty >= full) {
-		veItemInvalidate(veItemByUid(root, "Level"));
-		veItemInvalidate(veItemByUid(root, "Remaining"));
-		ble_dbus_set_int(root, "Status", 4);
-		return;
+	if (model->flags & MOPEKA_FLAG_TOPDOWN) {
+		if (empty <= full)
+			goto out_inval;
+	} else {
+		if (empty >= full)
+			goto out_inval;
 	}
 
 	level = (float)(height - empty) / (full - empty);
@@ -364,6 +394,13 @@ static void mopeka_update_level(struct VeItem *root)
 
 	item = veItemByUid(root, "Remaining");
 	veItemOwnerSet(item, veVariantFloat(&v, remain));
+
+	return;
+
+out_inval:
+	veItemInvalidate(veItemByUid(root, "Level"));
+	veItemInvalidate(veItemByUid(root, "Remaining"));
+	ble_dbus_set_int(root, "Status", 4);
 }
 
 int mopeka_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)

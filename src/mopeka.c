@@ -16,6 +16,18 @@
 #define HW_ID_AIR	4
 #define HW_ID_H2O	5
 
+#define FLUID_TYPE_FRESH_WATER		1
+#define FLUID_TYPE_WASTE_WATER		2
+#define FLUID_TYPE_LIVE_WELL		3
+#define FLUID_TYPE_OIL			4
+#define FLUID_TYPE_BLACK_WATER		5
+#define FLUID_TYPE_GASOLINE		6
+#define FLUID_TYPE_DIESEL		7
+#define FLUID_TYPE_LPG			8
+#define FLUID_TYPE_LNG			9
+#define FLUID_TYPE_HYDRAULIC_OIL	10
+#define FLUID_TYPE_RAW_WATER		11
+
 struct mopeka_model {
 	uint32_t	hwid;
 	const char	*type;
@@ -130,6 +142,10 @@ static const float mopeka_coefs_lpg[] = {
 	0.573045, -0.002822, -0.00000535,
 };
 
+static const float mopeka_coefs_gasoline[] = {
+	0.7373417462, -0.001978229885, 0.00000202162,
+};
+
 static const float mopeka_coefs_butane[] = {
 	0.03615, 0.000815,
 };
@@ -198,6 +214,29 @@ static int mopeka_xlate_level(struct VeItem *root, VeVariant *val, uint64_t rv)
 		return -1;
 
 	coefs = model->coefs;
+
+	if (!coefs) {
+		int fluid_type = veItemValueInt(root, "FluidType");
+
+		switch (fluid_type) {
+		case FLUID_TYPE_FRESH_WATER:
+		case FLUID_TYPE_WASTE_WATER:
+		case FLUID_TYPE_LIVE_WELL:
+		case FLUID_TYPE_BLACK_WATER:
+		case FLUID_TYPE_RAW_WATER:
+			coefs = mopeka_coefs_h2o;
+			break;
+		case FLUID_TYPE_LPG:
+			coefs = mopeka_coefs_lpg;
+			break;
+		case FLUID_TYPE_GASOLINE:
+		case FLUID_TYPE_DIESEL:
+			coefs = mopeka_coefs_gasoline;
+			break;
+		default:
+			return -1;
+		}
+	}
 
 	if (coefs == mopeka_coefs_lpg)
 		scale = mopeka_scale_butane(root, temp);

@@ -132,10 +132,24 @@ static int mopeka_xlate_level(struct VeItem *root, VeVariant *val, uint64_t rv)
 	float level;
 	int hwid;
 	int temp;
+	int tank_level_ext;
 
 	hwid = veItemValueInt(root, "HardwareID");
 	temp = veItemValueInt(root, "Temperature");
 	temp += 40;
+
+	/*
+	  Check for presence of extension bit on certain hardware/firmware.
+	  It will always be 0 on old firmware/hardware where raw value
+	  saturates at 16383.  When extension bit is set, the raw_value
+	  resolution changes to 4us with 16384 us offet.  Thus old sensors
+	  and firmware still have 0 to 16383 us range with 1us, and new
+	  versions add the range 16384 us to 81916 us with 4 us
+	  resolution.
+	*/
+	tank_level_ext = veItemValueInt(root, "TankLevelExtension");
+	if (tank_level_ext)
+		rv = 16384 + 4 * rv;
 
 	switch (hwid) {
 	case HW_ID_LPG:
@@ -160,7 +174,16 @@ static const struct reg_info mopeka_adv[] = {
 	{
 		.type	= VE_UN8,
 		.offset	= 0,
+		.mask	= 0x7f,
 		.name	= "HardwareID",
+		.format	= &veUnitNone,
+	},
+	{
+		.type	= VE_UN8,
+		.offset	= 0,
+		.shift	= 7,
+		.mask	= 1,
+		.name	= "TankLevelExtension",
 		.format	= &veUnitNone,
 	},
 	{

@@ -16,6 +16,17 @@
 #define HW_ID_AIR	4
 #define HW_ID_H2O	5
 
+struct mopeka_model {
+	uint32_t	hwid;
+	const char	*type;
+	const float	*coefs;
+	uint32_t	flags;
+};
+
+#define MOPEKA_FLAG_BUTANE	(1 << 0)
+
+static const struct mopeka_model *mopeka_get_model(uint32_t hwid);
+
 static struct VeSettingProperties capacity_props = {
 	.type			= VE_FLOAT,
 	.def.value.Float	= 0.2,
@@ -80,7 +91,12 @@ static const struct dev_setting mopeka_lpg_settings[] = {
 static int mopeka_init(struct VeItem *root, void *data)
 {
 	int hwid = (int)data;
+	const struct mopeka_model *model;
 	VeVariant v;
+
+	model = mopeka_get_model(hwid);
+	if (!model)
+		return -1;
 
 	ble_dbus_set_str(root, "RawUnit", "cm");
 	ble_dbus_set_item(root, "Remaining",
@@ -88,7 +104,7 @@ static int mopeka_init(struct VeItem *root, void *data)
 	ble_dbus_set_item(root, "Level",
 			  veVariantInvalidType(&v, VE_FLOAT), &veUnitNone);
 
-	if (hwid == HW_ID_LPG) {
+	if (model->flags & MOPEKA_FLAG_BUTANE) {
 		ble_dbus_add_settings(root, mopeka_lpg_settings,
 				      array_size(mopeka_lpg_settings));
 	}
@@ -118,6 +134,31 @@ static const float mopeka_coefs_butane[] = {
 	0.03615, 0.000815,
 };
 
+static const struct mopeka_model mopeka_models[] = {
+	{
+		.hwid	= HW_ID_LPG,
+		.type	= "LPG",
+		.coefs	= mopeka_coefs_lpg,
+		.flags	= MOPEKA_FLAG_BUTANE,
+	},
+	{
+		.hwid	= HW_ID_H2O,
+		.type	= "H20",
+		.coefs	= mopeka_coefs_h2o,
+	},
+};
+
+static const struct mopeka_model *mopeka_get_model(uint32_t hwid)
+{
+	int i;
+
+	for (i = 0; i < array_size(mopeka_models); i++)
+		if (mopeka_models[i].hwid == hwid)
+			return &mopeka_models[i];
+
+	return NULL;
+}
+
 static float mopeka_scale_butane(struct VeItem *root, int temp)
 {
 	float r = veItemValueInt(root, "ButaneRatio") / 100.0;
@@ -127,6 +168,7 @@ static float mopeka_scale_butane(struct VeItem *root, int temp)
 
 static int mopeka_xlate_level(struct VeItem *root, VeVariant *val, uint64_t rv)
 {
+	const struct mopeka_model *model;
 	const float *coefs;
 	float scale = 0;
 	float level;
@@ -151,17 +193,14 @@ static int mopeka_xlate_level(struct VeItem *root, VeVariant *val, uint64_t rv)
 	if (tank_level_ext)
 		rv = 16384 + 4 * rv;
 
-	switch (hwid) {
-	case HW_ID_LPG:
-		scale = mopeka_scale_butane(root, temp);
-		coefs = mopeka_coefs_lpg;
-		break;
-	case HW_ID_H2O:
-		coefs = mopeka_coefs_h2o;
-		break;
-	default:
+	model = mopeka_get_model(hwid);
+	if (!model)
 		return -1;
-	}
+
+	coefs = model->coefs;
+
+	if (coefs == mopeka_coefs_lpg)
+		scale = mopeka_scale_butane(root, temp);
 
 	scale += coefs[0] + coefs[1] * temp + coefs[2] * temp * temp;
 	level = rv * scale;
@@ -292,7 +331,7 @@ int mopeka_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
 {
 	struct VeItem *root;
 	const uint8_t *uid = buf + 5;
-	const char *type;
+	const struct mopeka_model *model;
 	char name[24];
 	char dev[16];
 	int hwid;
@@ -307,16 +346,9 @@ int mopeka_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
 
 	hwid = buf[0];
 
-	switch (hwid) {
-	case HW_ID_LPG:
-		type = "LPG";
-		break;
-	case HW_ID_H2O:
-		type = "H2O";
-		break;
-	default:
+	model = mopeka_get_model(hwid);
+	if (!model)
 		return -1;
-	}
 
 	snprintf(dev, sizeof(dev), "%02x%02x%02x%02x%02x%02x",
 		 addr->b[5], addr->b[4], addr->b[3],
@@ -327,7 +359,7 @@ int mopeka_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
 		return -1;
 
 	snprintf(name, sizeof(name), "Mopeka %s %02X:%02X:%02X",
-		 type, uid[0], uid[1], uid[2]);
+		 model->type, uid[0], uid[1], uid[2]);
 	ble_dbus_set_name(root, name);
 
 	if (!ble_dbus_is_enabled(root))

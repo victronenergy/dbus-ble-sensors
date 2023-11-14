@@ -85,6 +85,8 @@ static int mopeka_init(struct VeItem *root, void *data)
 	ble_dbus_set_str(root, "RawUnit", "cm");
 	ble_dbus_set_item(root, "Remaining",
 			  veVariantInvalidType(&v, VE_FLOAT), &veUnitm3);
+	ble_dbus_set_item(root, "Level",
+			  veVariantInvalidType(&v, VE_FLOAT), &veUnitNone);
 
 	if (hwid == HW_ID_LPG) {
 		ble_dbus_add_settings(root, mopeka_lpg_settings,

@@ -12,9 +12,14 @@
 #include "mopeka.h"
 #include "task.h"
 
-#define HW_ID_LPG	3
-#define HW_ID_AIR	4
-#define HW_ID_H2O	5
+#define HW_ID_PRO			3
+#define HW_ID_PRO_200			4
+#define HW_ID_PRO_H2O			5
+#define HW_ID_PRO_PLUS_BLE		8
+#define HW_ID_PRO_PLUS_CELL		9
+#define HW_ID_TOPDOWN_BLE		10
+#define HW_ID_TOPDOWN_CELL		11
+#define HW_ID_UNIVERSAL			12
 
 #define FLUID_TYPE_FRESH_WATER		1
 #define FLUID_TYPE_WASTE_WATER		2
@@ -168,21 +173,66 @@ static const float mopeka_coefs_gasoline[] = {
 	0.7373417462, -0.001978229885, 0.00000202162,
 };
 
+static const float mopeka_coefs_air[] = {
+	0.153096, 0.000327, -0.000000294,
+};
+
 static const float mopeka_coefs_butane[] = {
 	0.03615, 0.000815,
 };
 
 static const struct mopeka_model mopeka_models[] = {
 	{
-		.hwid	= HW_ID_LPG,
+		/* Pro Check LPG bottom-up */
+		.hwid	= HW_ID_PRO,
 		.type	= "LPG",
 		.coefs	= mopeka_coefs_lpg,
 		.flags	= MOPEKA_FLAG_BUTANE,
 	},
 	{
-		.hwid	= HW_ID_H2O,
+		/* Pro Check H2O, bottom-up */
+		.hwid	= HW_ID_PRO_H2O,
 		.type	= "H20",
 		.coefs	= mopeka_coefs_h2o,
+	},
+	{
+		/* Pro-200, top-down */
+		.hwid	= HW_ID_PRO_200,
+		.type	= "Pro200",
+		.coefs	= mopeka_coefs_air,
+		.flags	= MOPEKA_FLAG_TOPDOWN,
+	},
+	{
+		/* PRO+ bottom-up, boosted BLE */
+		.hwid	= HW_ID_PRO_PLUS_BLE,
+		.type	= "PPB",
+		.flags	= MOPEKA_FLAG_BUTANE,
+	},
+	{
+		/* PRO+ bottom-up, Bluetooth + cellular */
+		.hwid	= HW_ID_PRO_PLUS_CELL,
+		.type	= "PPC",
+		.flags	= MOPEKA_FLAG_BUTANE,
+	},
+	{
+		/* TD-40 or TD-200, top-down, boosted BLE */
+		.hwid	= HW_ID_TOPDOWN_BLE,
+		.type	= "TDB",
+		.coefs	= mopeka_coefs_air,
+		.flags	= MOPEKA_FLAG_TOPDOWN,
+	},
+	{
+		/* TD-40 or TD-200, top-down, Bluetooth + cellular */
+		.hwid	= HW_ID_TOPDOWN_CELL,
+		.type	= "TDC",
+		.coefs	= mopeka_coefs_air,
+		.flags	= MOPEKA_FLAG_TOPDOWN,
+	},
+	{
+		/* Pro Check Universal, bottom-up */
+		.hwid	= HW_ID_UNIVERSAL,
+		.type	= "Univ",
+		.flags	= MOPEKA_FLAG_BUTANE,
 	},
 };
 

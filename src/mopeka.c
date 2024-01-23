@@ -63,14 +63,14 @@ static struct VeSettingProperties empty_props = {
 	.type			= VE_FLOAT,
 	.def.value.Float	= 0,
 	.min.value.Float	= 0,
-	.max.value.Float	= 150,
+	.max.value.Float	= 500,
 };
 
 static struct VeSettingProperties full_props = {
 	.type			= VE_FLOAT,
 	.def.value.Float	= 20,
 	.min.value.Float	= 0,
-	.max.value.Float	= 150,
+	.max.value.Float	= 500,
 };
 
 static const struct dev_setting mopeka_settings[] = {

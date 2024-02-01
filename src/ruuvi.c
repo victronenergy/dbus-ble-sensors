@@ -121,18 +121,15 @@ static const struct reg_info ruuvi_rawv2[] = {
 	},
 };
 
-static void ruuvi_update_status(struct VeItem *devroot)
+static void ruuvi_update_alarms(struct VeItem *devroot)
 {
-	struct VeItem *status;
 	struct VeItem *batv;
 	struct VeItem *temp;
+	struct VeItem *lowbat;
+
 	VeVariant val;
 	float low;
-	int st;
-
-	status = veItemByUid(devroot, "Status");
-	if (!status)
-		return;
+	int lb;
 
 	batv = veItemByUid(devroot, "BatteryVoltage");
 	if (!batv)
@@ -140,6 +137,10 @@ static void ruuvi_update_status(struct VeItem *devroot)
 
 	temp = veItemByUid(devroot, "Temperature");
 	if (!temp)
+		return;
+
+	lowbat = veItemGetOrCreateUid(devroot, "Alarms/LowBattery");
+	if (!lowbat)
 		return;
 
 	veItemLocalValue(temp, &val);
@@ -156,12 +157,12 @@ static void ruuvi_update_status(struct VeItem *devroot)
 	veVariantToFloat(&val);
 
 	if (val.value.Float < low)
-		st = STATUS_BATT_LOW;
+		lb = 1;
 	else
-		st = STATUS_OK;
+		lb = 0;
 
-	veVariantUn32(&val, st);
-	veItemOwnerSet(status, &val);
+	veVariantUn32(&val, lb);
+	veItemOwnerSet(lowbat, &val);
 }
 
 int ruuvi_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
@@ -192,7 +193,7 @@ int ruuvi_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
 
 	ble_dbus_set_regs(root, ruuvi_rawv2, array_size(ruuvi_rawv2), buf, len);
 
-	ruuvi_update_status(root);
+	ruuvi_update_alarms(root);
 	ble_dbus_update(root);
 
 	return 0;

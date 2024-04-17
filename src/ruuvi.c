@@ -157,7 +157,7 @@ static void ruuvi_update_alarms(struct VeItem *devroot)
 	veVariantToN32(&val);
 
 	if (val.value.UN32)
-		low += 0.1;
+		low += 0.4;
 
 	veItemLocalValue(batv, &val);
 	veVariantToFloat(&val);

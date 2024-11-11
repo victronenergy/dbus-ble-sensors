@@ -12,7 +12,7 @@ static struct VeSettingProperties temp_type = {
 	.type		= VE_SN32,
 	.def.value.SN32	= 2,
 	.min.value.SN32	= 0,
-	.max.value.SN32	= 2,
+	.max.value.SN32	= 6,
 };
 
 static const struct dev_setting ruuvi_settings[] = {

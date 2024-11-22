@@ -58,7 +58,7 @@ static const struct reg_info solarsense_adv[] = {
 	{
                 .type   = VE_UN32,
                 .offset = 15,
-                .scale  = 10,
+                .scale  = 1,
                 .mask   = 0xfffff,
                 .inval  = 0xfffff,
 		.flags	= REG_FLAG_INVALID,

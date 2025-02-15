@@ -5,6 +5,9 @@
 #include <velib/utils/ve_item_utils.h>
 #include <velib/vecan/products.h>
 
+#include <math.h>
+#include <string.h>
+
 #include "ble-dbus.h"
 #include "ruuvi.h"
 
@@ -15,11 +18,59 @@ static struct VeSettingProperties temp_type = {
 	.max.value.SN32	= 6,
 };
 
+static struct VeSettingProperties calculate_angle = {
+	.type		= VE_SN32,
+	.def.value.SN32	= 0,
+	.min.value.SN32	= 0,
+	.max.value.SN32	= 1,
+};
+
+static struct VeSettingProperties calibrate_angle = {
+	.type 		= VE_SN32,
+	.def.value.SN32	= 0,
+	.min.value.SN32	= 0,
+	.max.value.SN32	= 1,
+};
+
+static struct VeSettingProperties angle_value = {
+    .type             = VE_FLOAT,
+    .def.value.Float  = 0.0,
+    .min.value.Float  = -180.0,
+    .max.value.Float  = 180.0,
+};
+
 static const struct dev_setting ruuvi_settings[] = {
 	{
 		.name	= "TemperatureType",
 		.props	= &temp_type,
 	},
+	{
+		.name   = "CalculateAngles",
+		.props  = &calculate_angle,
+	},
+	{
+		.name   = "CalibrateAngles",
+		.props  = &calibrate_angle,
+	},
+	    {
+        .name   = "AngleX",
+        .props  = &angle_value,
+    },
+    {
+        .name   = "AngleY",
+        .props  = &angle_value,
+    },
+    {
+        .name   = "AngleZ",
+        .props  = &angle_value,
+    },
+};
+
+struct angle_state {
+	int initialized;
+	float calib_x;
+	float calib_y;
+	float calib_z;
 };
 
 static const struct dev_info ruuvi_tag = {
@@ -173,6 +224,175 @@ static void ruuvi_update_alarms(struct VeItem *devroot)
 	veItemOwnerSet(lowbat, &val);
 }
 
+// Function to calculate total acceleration vector magnitude
+static float total_acceleration(float x, float y, float z) {
+    return sqrt(x * x + y * y + z * z);
+}
+
+// Function to calculate angle between vector component and axis
+static float angle_between_vector_component_and_axis(float component, float length) {
+    if (length == 0) return 0;
+    float angle = acos(component / length);
+    return (angle * 180.0 / M_PI) - 90.0; // Convert to degrees and center around 0
+}
+
+// Helper function to invalidate angle values
+static void clear_angle_values(struct VeItem *root) {
+    VeVariant val;
+    veVariantFloat(&val, 0.0);
+
+    ble_dbus_set_item(root, "AngleX", &val, &veUnitDegree);
+    ble_dbus_set_item(root, "AngleY", &val, &veUnitDegree);
+    ble_dbus_set_item(root, "AngleZ", &val, &veUnitDegree);
+}
+
+// Handle calibration
+static int handle_calibration(struct VeItem *root, float x, float y, float z) {
+    struct VeItem *calibrate = veItemByUid(root, "CalibrateAngles");
+    if (!calibrate) {
+        return 0;
+    }
+
+    VeVariant cal_val;
+    veItemLocalValue(calibrate, &cal_val);
+
+    if (!veVariantIsValid(&cal_val)) {
+        return 0;
+    }
+
+    veVariantToN32(&cal_val);
+    if (cal_val.value.SN32 != 1) {
+        return 0;
+    }
+
+    // Store calibration values as settings
+    VeVariant val;
+    veVariantFloat(&val, -x);
+    ble_dbus_set_item(root, "CalibX", &val, &veUnitNone);
+
+    veVariantFloat(&val, -y);
+    ble_dbus_set_item(root, "CalibY", &val, &veUnitNone);
+
+    veVariantFloat(&val, 1.0 - z);
+    ble_dbus_set_item(root, "CalibZ", &val, &veUnitNone);
+
+    // Reset calibration flag
+    ble_dbus_set_int(root, "CalibrateAngles", 0);
+
+    // Clear angles for this update
+    clear_angle_values(root);
+
+    return 0;
+}
+
+// Main angle calculation function
+static void ruuvi_calculate_angles(struct VeItem *root) {
+    if (!root) {
+        return;
+    }
+
+    // Get acceleration items
+    struct VeItem *accel_x = veItemByUid(root, "AccelX");
+    struct VeItem *accel_y = veItemByUid(root, "AccelY");
+    struct VeItem *accel_z = veItemByUid(root, "AccelZ");
+
+    if (!accel_x || !accel_y || !accel_z) {
+        clear_angle_values(root);
+        return;
+    }
+
+    // Get current values
+    VeVariant val_x, val_y, val_z;
+    veItemLocalValue(accel_x, &val_x);
+    veItemLocalValue(accel_y, &val_y);
+    veItemLocalValue(accel_z, &val_z);
+
+    if (!veVariantIsValid(&val_x) || !veVariantIsValid(&val_y) || !veVariantIsValid(&val_z)) {
+        clear_angle_values(root);
+        return;
+    }
+
+    veVariantToFloat(&val_x);
+    veVariantToFloat(&val_y);
+    veVariantToFloat(&val_z);
+
+    // Handle calibration if needed
+    if (handle_calibration(root, val_x.value.Float, val_y.value.Float, val_z.value.Float)) {
+        return;
+    }
+
+    // Check if calculations are enabled
+    struct VeItem *calc_enabled = veItemByUid(root, "CalculateAngles");
+    if (!calc_enabled) {
+        clear_angle_values(root);
+        return;
+    }
+
+    VeVariant calc_val;
+    veItemLocalValue(calc_enabled, &calc_val);
+    if (!veVariantIsValid(&calc_val)) {
+        clear_angle_values(root);
+        return;
+    }
+
+    veVariantToN32(&calc_val);
+    if (calc_val.value.SN32 != 1) {
+        clear_angle_values(root);
+        return;
+    }
+
+    // Get calibration values
+    float calib_x = 0, calib_y = 0, calib_z = 0;
+    struct VeItem *cal_x = veItemByUid(root, "CalibX");
+    struct VeItem *cal_y = veItemByUid(root, "CalibY");
+    struct VeItem *cal_z = veItemByUid(root, "CalibZ");
+
+    if (cal_x && cal_y && cal_z) {
+        VeVariant cal_val_x, cal_val_y, cal_val_z;
+        veItemLocalValue(cal_x, &cal_val_x);
+        veItemLocalValue(cal_y, &cal_val_y);
+        veItemLocalValue(cal_z, &cal_val_z);
+
+        if (veVariantIsValid(&cal_val_x) && veVariantIsValid(&cal_val_y) && veVariantIsValid(&cal_val_z)) {
+            veVariantToFloat(&cal_val_x);
+            veVariantToFloat(&cal_val_y);
+            veVariantToFloat(&cal_val_z);
+
+            calib_x = cal_val_x.value.Float;
+            calib_y = cal_val_y.value.Float;
+            calib_z = cal_val_z.value.Float;
+        }
+    }
+
+    // Apply calibration
+    float accel_x_cal = val_x.value.Float + calib_x;
+    float accel_y_cal = val_y.value.Float + calib_y;
+    float accel_z_cal = val_z.value.Float + calib_z;
+
+    // Calculate total acceleration
+    float total = total_acceleration(accel_x_cal, accel_y_cal, accel_z_cal);
+    if (total == 0) {
+        clear_angle_values(root);
+        return;
+    }
+
+    // Calculate angles
+    float angle_x = angle_between_vector_component_and_axis(accel_x_cal, total);
+    float angle_y = angle_between_vector_component_and_axis(accel_y_cal, total);
+    float angle_z = angle_between_vector_component_and_axis(accel_z_cal, total);
+
+    // Update angles in dbus
+    VeVariant val;
+    veVariantFloat(&val, angle_x);
+    ble_dbus_set_item(root, "AngleX", &val, &veUnitDegree);
+
+    veVariantFloat(&val, angle_y);
+    ble_dbus_set_item(root, "AngleY", &val, &veUnitDegree);
+
+    veVariantFloat(&val, angle_z);
+    ble_dbus_set_item(root, "AngleZ", &val, &veUnitDegree);
+}
+
 int ruuvi_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
 {
 	const uint8_t *mac = buf + 18;
@@ -201,6 +421,8 @@ int ruuvi_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
 
 	ble_dbus_set_regs(root, ruuvi_rawv2, array_size(ruuvi_rawv2), buf, len);
 
+	ruuvi_calculate_angles(root);  // Calculate angles after setting accelerometer values
+				       //
 	ruuvi_update_alarms(root);
 	ble_dbus_update(root);
 

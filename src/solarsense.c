@@ -10,6 +10,35 @@
 #include "ble-dbus.h"
 #include "solarsense.h"
 
+static int solarsense_xlate_txpower(struct VeItem *root, VeVariant *val,
+				    uint64_t rawval)
+{
+	int txp = rawval ? 6 : 0;
+
+	veVariantUn8(val, txp);
+
+	return 0;
+}
+
+static int solarsense_xlate_tss(struct VeItem *root, VeVariant *val,
+				uint64_t rawval)
+{
+	int tss;
+
+	if (rawval <= 29)
+		tss = rawval * 2;
+	else if (rawval <= 95)
+		tss = 60 + 10 * (rawval - 30);
+	else if (rawval <= 126)
+		tss = 720 + 30 * (rawval - 96);
+	else
+		tss = rawval;
+
+	veVariantUn16(val, tss);
+
+	return 0;
+}
+
 static const struct reg_info solarsense_adv[] = {
 	{
 		.type	= VE_UN32,
@@ -28,16 +57,6 @@ static const struct reg_info solarsense_adv[] = {
 	{
 		.type	= VE_UN8,
 		.offset	= 13,
-		.scale	= 1,
-		.bias	= -60,
-		.inval	= 0xff,
-		.flags	= REG_FLAG_INVALID,
-		.name	= "CellTemperature",
-		.format	= &veUnitCelsius1Dec,
-	},
-	{
-		.type	= VE_UN8,
-		.offset	= 14,
 		.mask	= 0x00ff,
 		.scale	= 100,
 		.bias	= 1.7,
@@ -48,7 +67,7 @@ static const struct reg_info solarsense_adv[] = {
 	},
 	{
 		.type	= VE_UN32,
-		.offset = 15,
+		.offset = 14,
 		.scale	= 1,
 		.mask	= 0xfffff,
 		.inval	= 0xfffff,
@@ -58,7 +77,7 @@ static const struct reg_info solarsense_adv[] = {
 	},
 	{
 		.type	= VE_UN32,
-		.offset = 17,
+		.offset = 16,
 		.shift	= 4,
 		.scale	= 100,
 		.mask	= 0xfffff,
@@ -69,13 +88,45 @@ static const struct reg_info solarsense_adv[] = {
 	},
 	{
 		.type	= VE_UN16,
-		.offset	= 20,
+		.offset	= 19,
 		.mask	= 0x3fff,
 		.scale	= 10,
 		.inval	= 0x3fff,
 		.flags	= REG_FLAG_INVALID,
 		.name	= "Irradiance",
 		.format = &veUnitIrradiance1Dec,
+	},
+	{
+		.type	= VE_UN16,
+		.offset	= 20,
+		.shift	= 6,
+		.mask	= 0x7ff,
+		.scale	= 10,
+		.bias	= -60,
+		.inval	= 0x7ff,
+		.flags	= REG_FLAG_INVALID,
+		.name	= "CellTemperature",
+		.format	= &veUnitCelsius1Dec,
+	},
+	{
+		.type	= VE_UN8,
+		.offset	= 22,
+		.shift	= 1,
+		.mask	= 0x1,
+		.xlate	= solarsense_xlate_txpower,
+		.name	= "TxPowerLevel",
+		.format	= &veUnitdBm,
+	},
+	{
+		.type	= VE_UN16,
+		.offset	= 22,
+		.shift	= 2,
+		.mask	= 0x7f,
+		.inval	= 0x7f,
+		.flags	= REG_FLAG_INVALID,
+		.xlate	= solarsense_xlate_tss,
+		.name	= "TimeSinceLastSun",
+		.format	= &veUnitMinutes,
 	},
 };
 

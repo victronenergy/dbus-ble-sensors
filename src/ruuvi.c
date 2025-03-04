@@ -22,15 +22,6 @@ static const struct dev_setting ruuvi_settings[] = {
 	},
 };
 
-static const struct dev_info ruuvi_tag = {
-	.product_id	= VE_PROD_ID_RUUVI_TAG,
-	.dev_instance	= 20,
-	.dev_prefix	= "ruuvi_",
-	.role		= "temperature",
-	.num_settings	= array_size(ruuvi_settings),
-	.settings	= ruuvi_settings,
-};
-
 static const struct reg_info ruuvi_rawv2[] = {
 	{
 		.type	= VE_SN16,
@@ -121,6 +112,17 @@ static const struct reg_info ruuvi_rawv2[] = {
 	},
 };
 
+static const struct dev_info ruuvi_tag = {
+	.product_id	= VE_PROD_ID_RUUVI_TAG,
+	.dev_instance	= 20,
+	.dev_prefix	= "ruuvi_",
+	.role		= "temperature",
+	.num_settings	= array_size(ruuvi_settings),
+	.settings	= ruuvi_settings,
+	.num_regs	= array_size(ruuvi_rawv2),
+	.regs		= ruuvi_rawv2,
+};
+
 static void ruuvi_update_alarms(struct VeItem *devroot)
 {
 	struct VeItem *batv;
@@ -199,7 +201,7 @@ int ruuvi_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
 	if (!ble_dbus_is_enabled(root))
 		return 0;
 
-	ble_dbus_set_regs(root, ruuvi_rawv2, array_size(ruuvi_rawv2), buf, len);
+	ble_dbus_set_regs(root, buf, len);
 
 	ruuvi_update_alarms(root);
 	ble_dbus_update(root);

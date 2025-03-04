@@ -10,13 +10,6 @@
 #include "ble-dbus.h"
 #include "solarsense.h"
 
-static const struct dev_info solarsense_sensor = {
-	.product_id	= VE_PROD_ID_SOLAR_SENSE_750,
-	.dev_instance	= 20,
-	.dev_prefix	= "solarsense_",
-	.role		= "meteo",
-};
-
 static const struct reg_info solarsense_adv[] = {
 	{
 		.type	= VE_UN32,
@@ -86,6 +79,15 @@ static const struct reg_info solarsense_adv[] = {
 	},
 };
 
+static const struct dev_info solarsense_sensor = {
+	.product_id	= VE_PROD_ID_SOLAR_SENSE_750,
+	.dev_instance	= 20,
+	.dev_prefix	= "solarsense_",
+	.role		= "meteo",
+	.num_regs	= array_size(solarsense_adv),
+	.regs		= solarsense_adv,
+};
+
 static void solarsense_update_alarms(struct VeItem *devroot)
 {
 	struct VeItem *batv;
@@ -151,8 +153,7 @@ int solarsense_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
 	if (!ble_dbus_is_enabled(root))
 		return 0;
 
-	ble_dbus_set_regs(root, solarsense_adv, array_size(solarsense_adv),
-			  buf, len);
+	ble_dbus_set_regs(root, buf, len);
 
 	solarsense_update_alarms(root);
 	ble_dbus_update(root);

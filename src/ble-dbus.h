@@ -15,16 +15,6 @@ struct dev_setting {
 	struct VeSettingProperties *props;
 };
 
-struct dev_info {
-	uint16_t	product_id;
-	uint16_t	dev_instance;
-	const char	*dev_prefix;
-	const char	*role;
-	int		num_settings;
-	const struct dev_setting *settings;
-	int		(*init)(struct VeItem *root, void *data);
-};
-
 struct reg_info {
 	uint16_t	type;
 	uint16_t	offset;
@@ -42,6 +32,18 @@ struct reg_info {
 
 #define REG_FLAG_BIG_ENDIAN	(1 << 0)
 #define REG_FLAG_INVALID	(1 << 1)
+
+struct dev_info {
+	uint16_t	product_id;
+	uint16_t	dev_instance;
+	const char	*dev_prefix;
+	const char	*role;
+	int		num_settings;
+	const struct dev_setting *settings;
+	int		num_regs;
+	const struct reg_info *regs;
+	int		(*init)(struct VeItem *root, void *data);
+};
 
 #define STATUS_OK		0
 #define STATUS_BATT_LOW		5
@@ -61,9 +63,7 @@ int ble_dbus_add_settings(struct VeItem *droot,
 			  const struct dev_setting *settings,
 			  int num_settings);
 int ble_dbus_is_enabled(struct VeItem *root);
-int ble_dbus_set_regs(struct VeItem *root,
-                      const struct reg_info *regs, int nregs,
-                      const uint8_t *data, int len);
+int ble_dbus_set_regs(struct VeItem *root, const uint8_t *data, int len);
 int ble_dbus_set_name(struct VeItem *root, const char *name);
 int ble_dbus_set_item(struct VeItem *root, const char *path, VeVariant *val,
 		      const void *format);

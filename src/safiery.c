@@ -92,16 +92,6 @@ static int safiery_init(struct VeItem *root, void *data)
 	return 0;
 }
 
-static const struct dev_info safiery_sensor = {
-	.product_id	= VE_PROD_ID_SAFIERY_TANK_SENSOR,
-	.dev_instance	= 20,
-	.dev_prefix	= "safiery_",
-	.role		= "tank",
-	.num_settings	= array_size(safiery_settings),
-	.settings	= safiery_settings,
-	.init		= safiery_init,
-};
-
 static const struct reg_info safiery_adv[] = {
 	{
 		.type	= VE_UN8,
@@ -164,6 +154,18 @@ static const struct reg_info safiery_adv[] = {
 		.name	= "AccelZ",
 		.format	= &veUnitG2Dec,
 	},
+};
+
+static const struct dev_info safiery_sensor = {
+	.product_id	= VE_PROD_ID_SAFIERY_TANK_SENSOR,
+	.dev_instance	= 20,
+	.dev_prefix	= "safiery_",
+	.role		= "tank",
+	.num_settings	= array_size(safiery_settings),
+	.settings	= safiery_settings,
+	.num_regs	= array_size(safiery_adv),
+	.regs		= safiery_adv,
+	.init		= safiery_init,
 };
 
 static void safiery_update_level(struct VeItem *root)
@@ -247,7 +249,7 @@ int safiery_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
 	if (!ble_dbus_is_enabled(root))
 		return 0;
 
-	ble_dbus_set_regs(root, safiery_adv, array_size(safiery_adv), buf, len);
+	ble_dbus_set_regs(root, buf, len);
 
 	safiery_update_level(root);
 	ble_dbus_update(root);

@@ -361,14 +361,13 @@ static int ble_dbus_connect(struct VeItem *droot)
 	return 0;
 }
 
-int ble_dbus_set_regs(struct VeItem *droot,
-		      const struct reg_info *regs, int nregs,
-		      const uint8_t *data, int len)
+int ble_dbus_set_regs(struct VeItem *droot, const uint8_t *data, int len)
 {
+	const struct dev_info *info = veItemCtx(droot)->ptr;
 	int i;
 
-	for (i = 0; i < nregs; i++)
-		set_reg(droot, &regs[i], data, len);
+	for (i = 0; i < info->num_regs; i++)
+		set_reg(droot, &info->regs[i], data, len);
 
 	return 0;
 }

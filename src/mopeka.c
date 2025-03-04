@@ -151,16 +151,6 @@ static int mopeka_init(struct VeItem *root, void *data)
 	return 0;
 }
 
-static const struct dev_info mopeka_sensor = {
-	.product_id	= VE_PROD_ID_MOPEKA_SENSOR,
-	.dev_instance	= 20,
-	.dev_prefix	= "mopeka_",
-	.role		= "tank",
-	.num_settings	= array_size(mopeka_settings),
-	.settings	= mopeka_settings,
-	.init		= mopeka_init,
-};
-
 static const float mopeka_coefs_h2o[] = {
 	0.600592, 0.003124, -0.00001368,
 };
@@ -393,6 +383,18 @@ static const struct reg_info mopeka_adv[] = {
 	},
 };
 
+static const struct dev_info mopeka_sensor = {
+	.product_id	= VE_PROD_ID_MOPEKA_SENSOR,
+	.dev_instance	= 20,
+	.dev_prefix	= "mopeka_",
+	.role		= "tank",
+	.num_settings	= array_size(mopeka_settings),
+	.settings	= mopeka_settings,
+	.num_regs	= array_size(mopeka_adv),
+	.regs		= mopeka_adv,
+	.init		= mopeka_init,
+};
+
 static void mopeka_update_level(struct VeItem *root)
 {
 	const struct mopeka_model *model;
@@ -491,7 +493,7 @@ int mopeka_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
 	if (!ble_dbus_is_enabled(root))
 		return 0;
 
-	ble_dbus_set_regs(root, mopeka_adv, array_size(mopeka_adv), buf, len);
+	ble_dbus_set_regs(root, buf, len);
 
 	mopeka_update_level(root);
 	ble_dbus_update(root);

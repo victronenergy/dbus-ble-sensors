@@ -35,16 +35,6 @@ static const struct reg_info solarsense_adv[] = {
 	{
 		.type	= VE_UN8,
 		.offset	= 13,
-		.scale	= 1,
-		.bias	= -60,
-		.inval	= 0xff,
-		.flags	= REG_FLAG_INVALID,
-		.name	= "CellTemperature",
-		.format	= &veUnitCelsius1Dec,
-	},
-	{
-		.type	= VE_UN8,
-		.offset	= 14,
 		.mask	= 0x00ff,
 		.scale	= 100,
 		.bias	= 1.7,
@@ -55,7 +45,7 @@ static const struct reg_info solarsense_adv[] = {
 	},
 	{
 		.type	= VE_UN32,
-		.offset = 15,
+		.offset = 14,
 		.scale	= 1,
 		.mask	= 0xfffff,
 		.inval	= 0xfffff,
@@ -65,7 +55,7 @@ static const struct reg_info solarsense_adv[] = {
 	},
 	{
 		.type	= VE_UN32,
-		.offset = 17,
+		.offset = 16,
 		.shift	= 4,
 		.scale	= 100,
 		.mask	= 0xfffff,
@@ -76,7 +66,7 @@ static const struct reg_info solarsense_adv[] = {
 	},
 	{
 		.type	= VE_UN16,
-		.offset	= 20,
+		.offset	= 19,
 		.mask	= 0x3fff,
 		.scale	= 10,
 		.inval	= 0x3fff,
@@ -84,7 +74,76 @@ static const struct reg_info solarsense_adv[] = {
 		.name	= "Irradiance",
 		.format = &veUnitIrradiance1Dec,
 	},
+	{
+		.type	= VE_UN16,
+		.offset	= 20,
+		.shift	= 6,
+		.mask	= 0x7ff,
+		.scale	= 10,
+		.bias	= -60,
+		.inval	= 0x7ff,
+		.flags	= REG_FLAG_INVALID,
+		.name	= "CellTemperature",
+		.format	= &veUnitCelsius1Dec,
+	},
+	{
+		.type	= VE_UN8,
+		.offset	= 22,
+		.shift	= 1,
+		.mask	= 0x1,
+		.flags	= REG_FLAG_INVALID,
+		.name	= "TxPowerLevel",
+		.format	= &veUnitdBm,
+	},
+	{
+		.type	= VE_UN16,
+		.offset	= 22,
+		.shift	= 2,
+		.mask	= 0x7f,
+		.inval	= 0x7f,
+		.flags	= REG_FLAG_INVALID,
+		.name	= "TimeSinceLastSun",
+		.format	= &veUnitMinutes,
+	},
 };
+
+static void solarsense_convert_values(struct VeItem *devroot)
+{
+	struct VeItem *tx_power_item;
+	struct VeItem *time_since_sun_item;
+	VeVariant val;
+
+	tx_power_item = veItemByUid(devroot, "TxPowerLevel");
+	if (tx_power_item && veItemIsValid(tx_power_item)) {
+		veItemLocalValue(tx_power_item, &val);
+
+		uint8_t raw_value = val.value.UN8;
+		uint8_t converted_value = (raw_value == 0) ? 0 : 6;
+		veVariantUn8(&val, converted_value);
+		veItemOwnerSet(tx_power_item, &val);
+	}
+
+	time_since_sun_item = veItemByUid(devroot, "TimeSinceLastSun");
+	if (time_since_sun_item && veItemIsValid(time_since_sun_item)) {
+		veItemLocalValue(time_since_sun_item, &val);
+
+		uint8_t raw_value = val.value.UN16;
+		uint16_t converted_value;
+
+		if (raw_value <= 29) {
+			converted_value = raw_value * 2;
+		} else if (raw_value <= 95) {
+			converted_value = 60 + ((raw_value - 30) * 10);
+		} else if (raw_value <= 126) {
+			converted_value = 720 + ((raw_value - 96) * 30);
+		} else {
+			converted_value = raw_value;
+		}
+
+		veVariantUn16(&val, converted_value);
+		veItemOwnerSet(time_since_sun_item, &val);
+	}
+}
 
 static void solarsense_update_alarms(struct VeItem *devroot)
 {
@@ -123,7 +182,6 @@ static void solarsense_update_alarms(struct VeItem *devroot)
 	veItemOwnerSet(lowbat, &val);
 }
 
-
 int solarsense_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
 {
 	struct VeItem *root;
@@ -154,6 +212,7 @@ int solarsense_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
 	ble_dbus_set_regs(root, solarsense_adv, array_size(solarsense_adv),
 			  buf, len);
 
+	solarsense_convert_values(root);
 	solarsense_update_alarms(root);
 	ble_dbus_update(root);
 

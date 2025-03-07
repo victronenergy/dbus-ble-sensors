@@ -444,3 +444,30 @@ void ble_dbus_tick(void)
 		veItemSendPendingChanges(get_control());
 	}
 }
+
+float ble_dbus_apply_shape(float level, const float shape_map[][2], int shape_map_len)
+{
+    int i;
+
+    if (shape_map_len <= 1)
+        return level;
+
+    /* Clamp level to valid range */
+    if (level < 0)
+        level = 0;
+    if (level > 1)
+        level = 1;
+
+    /* Apply shape map */
+    for (i = 1; i < shape_map_len; i++) {
+        if (shape_map[i][0] >= level) {
+            float s0 = shape_map[i - 1][0];
+            float s1 = shape_map[i][0];
+            float l0 = shape_map[i - 1][1];
+            float l1 = shape_map[i][1];
+            return l0 + (level - s0) / (s1 - s0) * (l1 - l0);
+        }
+    }
+
+    return level;
+}

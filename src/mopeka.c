@@ -11,6 +11,7 @@
 #include "ble-dbus.h"
 #include "mopeka.h"
 #include "task.h"
+#include "tank_common.h"
 
 #define HW_ID_PRO			3
 #define HW_ID_PRO_200			4
@@ -147,6 +148,8 @@ static int mopeka_init(struct VeItem *root, void *data)
 	else
 		ble_dbus_add_settings(root, mopeka_bottomup_settings,
 				      array_size(mopeka_bottomup_settings));
+
+	tank_add_shape_settings(root);
 
 	return 0;
 }
@@ -397,6 +400,8 @@ static void mopeka_update_level(struct VeItem *root)
 {
 	const struct mopeka_model *model;
 	struct VeItem *item;
+	struct VeItem *shapeItem;
+	struct tank_shape_ctx *ctx;
 	int hwid;
 	float capacity;
 	int height;
@@ -438,6 +443,13 @@ static void mopeka_update_level(struct VeItem *root)
 	if (level > 1)
 		level = 1;
 
+	shapeItem = veItemByUid(root, "Shape");
+	if (shapeItem) {
+		ctx = (struct tank_shape_ctx *)veItemCtx(shapeItem)->ptr;
+		if (ctx && ctx->shape_map_len > 0) {
+			level = ble_dbus_apply_shape(level, ctx->shape_map, ctx->shape_map_len);
+		}
+	}
 	remain = level * capacity;
 
 	ble_dbus_set_int(root, "Level", lrintf(100 * level));

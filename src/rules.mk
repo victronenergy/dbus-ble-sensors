@@ -5,3 +5,4 @@ SRCS += ruuvi.c
 SRCS += safiery.c
 SRCS += solarsense.c
 SRCS += task.c
+SRCS += tank_common.c

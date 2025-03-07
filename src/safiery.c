@@ -11,6 +11,7 @@
 #include "ble-dbus.h"
 #include "safiery.h"
 #include "task.h"
+#include "tank_common.h"
 
 #define HW_ID_TOPDOWN_BLE		10
 
@@ -88,6 +89,8 @@ static int safiery_init(struct VeItem *root, void *data)
 
 	ble_dbus_add_settings(root, safiery_topdown_settings,
 			      array_size(safiery_topdown_settings));
+
+	tank_add_shape_settings(root);
 
 	return 0;
 }
@@ -169,6 +172,8 @@ static const struct reg_info safiery_adv[] = {
 static void safiery_update_level(struct VeItem *root)
 {
 	struct VeItem *item;
+	struct VeItem *shapeItem;
+	struct tank_shape_ctx *ctx;
 	float capacity;
 	int height;
 	int empty;
@@ -198,6 +203,14 @@ static void safiery_update_level(struct VeItem *root)
 		level = 0;
 	if (level > 1)
 		level = 1;
+
+	shapeItem = veItemByUid(root, "Shape");
+	if (shapeItem) {
+		ctx = (struct tank_shape_ctx *)veItemCtx(shapeItem)->ptr;
+		if (ctx && ctx->shape_map_len > 0) {
+			level = ble_dbus_apply_shape(level, ctx->shape_map, ctx->shape_map_len);
+		}
+	}
 
 	remain = level * capacity;
 

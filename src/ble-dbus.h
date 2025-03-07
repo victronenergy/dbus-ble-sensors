@@ -10,6 +10,8 @@
 
 #define array_size(a) (sizeof(a) / sizeof(a[0]))
 
+#define TANK_SHAPE_MAX_POINTS 10
+
 struct dev_setting {
 	char		*name;
 	struct VeSettingProperties *props;
@@ -71,5 +73,7 @@ int ble_dbus_set_str(struct VeItem *root, const char *path, const char *str);
 int ble_dbus_set_int(struct VeItem *root, const char *path, int num);
 int ble_dbus_update(struct VeItem *root);
 void ble_dbus_tick(void);
+
+float ble_dbus_apply_shape(float level, const float shape_map[][2], int shape_map_len);
 
 #endif

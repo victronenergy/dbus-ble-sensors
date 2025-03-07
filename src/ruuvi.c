@@ -112,6 +112,37 @@ static const struct reg_info ruuvi_rawv2[] = {
 	},
 };
 
+static float ruuvi_lowbat(struct VeItem *root, const struct alarm *alarm)
+{
+	struct VeItem *temp;
+	VeVariant val;
+	float low = 2.5;
+
+	temp = veItemByUid(root, "Temperature");
+	if (!temp)
+		return low;
+
+	veItemLocalValue(temp, &val);
+	veVariantToFloat(&val);
+
+	if (val.value.Float < -20)
+		low = 2.0;
+	else if (val.value.Float < 0)
+		low = 2.3;
+
+	return low;
+}
+
+static const struct alarm ruuvi_alarms[] = {
+	{
+		.name	= "LowBattery",
+		.item	= "BatteryVoltage",
+		.dir	= -1,
+		.hyst	= 0.4,
+		.get_level = ruuvi_lowbat,
+	},
+};
+
 static const struct dev_info ruuvi_tag = {
 	.product_id	= VE_PROD_ID_RUUVI_TAG,
 	.dev_instance	= 20,
@@ -121,59 +152,9 @@ static const struct dev_info ruuvi_tag = {
 	.settings	= ruuvi_settings,
 	.num_regs	= array_size(ruuvi_rawv2),
 	.regs		= ruuvi_rawv2,
+	.num_alarms	= array_size(ruuvi_alarms),
+	.alarms		= ruuvi_alarms,
 };
-
-static void ruuvi_update_alarms(struct VeItem *devroot)
-{
-	struct VeItem *batv;
-	struct VeItem *temp;
-	struct VeItem *lowbat;
-
-	VeVariant val;
-	float low;
-	int lb;
-
-	batv = veItemByUid(devroot, "BatteryVoltage");
-	if (!batv)
-		return;
-
-	temp = veItemByUid(devroot, "Temperature");
-	if (!temp)
-		return;
-
-	lowbat = veItemGetOrCreateUid(devroot, "Alarms/LowBattery");
-	if (!lowbat)
-		return;
-
-	veItemLocalValue(temp, &val);
-	veVariantToFloat(&val);
-
-	if (val.value.Float < -20)
-		low = 2.0;
-	else if (val.value.Float < 0)
-		low = 2.3;
-	else
-		low = 2.5;
-
-	if (veItemIsValid(lowbat)) {
-		veItemLocalValue(lowbat, &val);
-		veVariantToN32(&val);
-
-		if (val.value.UN32)
-			low += 0.4;
-	}
-
-	veItemLocalValue(batv, &val);
-	veVariantToFloat(&val);
-
-	if (val.value.Float < low)
-		lb = 1;
-	else
-		lb = 0;
-
-	veVariantUn32(&val, lb);
-	veItemOwnerSet(lowbat, &val);
-}
 
 int ruuvi_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
 {
@@ -202,8 +183,7 @@ int ruuvi_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
 		return 0;
 
 	ble_dbus_set_regs(root, buf, len);
-
-	ruuvi_update_alarms(root);
+	ble_dbus_update_alarms(root);
 	ble_dbus_update(root);
 
 	return 0;

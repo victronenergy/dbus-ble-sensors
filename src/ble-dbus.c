@@ -410,6 +410,59 @@ int ble_dbus_set_name(struct VeItem *droot, const char *name)
 	return 0;
 }
 
+static void update_alarm(struct VeItem *droot, const struct alarm *alarm)
+{
+	struct VeItem *alarm_item;
+	struct VeItem *item;
+	VeVariant val;
+	float level;
+	int active;
+	char buf[64];
+
+	item = veItemByUid(droot, alarm->item);
+	if (!item || !veItemIsValid(item))
+		return;
+
+	if (alarm->get_level)
+		level = alarm->get_level(droot, alarm);
+	else
+		level = alarm->level;
+
+
+	snprintf(buf, sizeof(buf), "Alarms/%s", alarm->name);
+	alarm_item = veItemGetOrCreateUid(droot, buf);
+	if (!alarm_item)
+		return;
+
+	if (veItemIsValid(alarm_item)) {
+		veItemLocalValue(alarm_item, &val);
+		veVariantToN32(&val);
+
+		if (val.value.UN32)
+			level += alarm->hyst;
+	}
+
+	veItemLocalValue(item, &val);
+	veVariantToFloat(&val);
+
+	if (alarm->dir > 0)
+		active = val.value.Float > level;
+	else
+		active = val.value.Float < level;
+
+	veVariantUn32(&val, active);
+	veItemOwnerSet(alarm_item, &val);
+}
+
+void ble_dbus_update_alarms(struct VeItem *droot)
+{
+	const struct dev_info *info = get_dev_info(droot);
+	int i;
+
+	for (i = 0; i < info->num_alarms; i++)
+		update_alarm(droot, &info->alarms[i]);
+}
+
 int ble_dbus_update(struct VeItem *droot)
 {
 	ble_dbus_connect(droot);

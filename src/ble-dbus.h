@@ -15,6 +15,16 @@ struct dev_setting {
 	struct VeSettingProperties *props;
 };
 
+struct alarm {
+	const char	*name;
+	const char	*item;
+	int		dir;
+	float		level;
+	float		hyst;
+	float		(*get_level)(struct VeItem *root,
+				     const struct alarm *alarm);
+};
+
 struct reg_info {
 	uint16_t	type;
 	uint16_t	offset;
@@ -42,6 +52,8 @@ struct dev_info {
 	const struct dev_setting *settings;
 	int		num_regs;
 	const struct reg_info *regs;
+	int		num_alarms;
+	const struct alarm *alarms;
 	int		(*init)(struct VeItem *root, void *data);
 };
 
@@ -69,6 +81,7 @@ int ble_dbus_set_item(struct VeItem *root, const char *path, VeVariant *val,
 		      const void *format);
 int ble_dbus_set_str(struct VeItem *root, const char *path, const char *str);
 int ble_dbus_set_int(struct VeItem *root, const char *path, int num);
+void ble_dbus_update_alarms(struct VeItem *droot);
 int ble_dbus_update(struct VeItem *root);
 void ble_dbus_tick(void);
 

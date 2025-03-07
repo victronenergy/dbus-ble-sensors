@@ -79,6 +79,16 @@ static const struct reg_info solarsense_adv[] = {
 	},
 };
 
+static const struct alarm solarsense_alarms[] = {
+	{
+		.name	= "LowBattery",
+		.item	= "BatteryVoltage",
+		.dir	= -1,
+		.level	= 3.2,
+		.hyst	= 0.4,
+	},
+};
+
 static const struct dev_info solarsense_sensor = {
 	.product_id	= VE_PROD_ID_SOLAR_SENSE_750,
 	.dev_instance	= 20,
@@ -86,45 +96,9 @@ static const struct dev_info solarsense_sensor = {
 	.role		= "meteo",
 	.num_regs	= array_size(solarsense_adv),
 	.regs		= solarsense_adv,
+	.num_alarms	= array_size(solarsense_alarms),
+	.alarms		= solarsense_alarms,
 };
-
-static void solarsense_update_alarms(struct VeItem *devroot)
-{
-	struct VeItem *batv;
-	struct VeItem *lowbat;
-
-	VeVariant val;
-	float low = 3.2;
-	int lb;
-
-	batv = veItemByUid(devroot, "BatteryVoltage");
-	if (!batv)
-		return;
-
-	lowbat = veItemGetOrCreateUid(devroot, "Alarms/LowBattery");
-	if (!lowbat)
-		return;
-
-	if (veItemIsValid(lowbat)) {
-		veItemLocalValue(lowbat, &val);
-		veVariantToN32(&val);
-
-		if (val.value.UN32)
-			low += 0.4;
-	}
-
-	veItemLocalValue(batv, &val);
-	veVariantToFloat(&val);
-
-	if (val.value.Float < low)
-		lb = 1;
-	else
-		lb = 0;
-
-	veVariantUn32(&val, lb);
-	veItemOwnerSet(lowbat, &val);
-}
-
 
 int solarsense_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
 {
@@ -154,8 +128,7 @@ int solarsense_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
 		return 0;
 
 	ble_dbus_set_regs(root, buf, len);
-
-	solarsense_update_alarms(root);
+	ble_dbus_update_alarms(root);
 	ble_dbus_update(root);
 
 	return 0;

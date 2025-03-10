@@ -54,7 +54,7 @@ struct dev_info {
 	const struct reg_info *regs;
 	int		num_alarms;
 	const struct alarm *alarms;
-	int		(*init)(struct VeItem *root, void *data);
+	int		(*init)(struct VeItem *root, const void *data);
 };
 
 #define STATUS_OK		0
@@ -69,7 +69,7 @@ extern const VeVariantUnitFmt veUnitm3;
 int ble_dbus_init(void);
 int ble_dbus_add_interface(const char *name, const char *addr);
 struct VeItem *ble_dbus_create(const char *dev, const struct dev_info *info,
-			       void *data);
+			       const void *data);
 struct VeItem *ble_dbus_get_dev(const char *dev);
 int ble_dbus_add_settings(struct VeItem *droot,
 			  const struct dev_setting *settings,

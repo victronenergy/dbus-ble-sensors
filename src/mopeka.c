@@ -120,7 +120,7 @@ static const struct dev_setting mopeka_lpg_settings[] = {
 	},
 };
 
-static int mopeka_init(struct VeItem *root, void *data)
+static int mopeka_init(struct VeItem *root, const void *data)
 {
 	int hwid = (int)data;
 	const struct mopeka_model *model;

@@ -255,7 +255,7 @@ static void on_enabled_changed(struct VeItem *ena)
 }
 
 struct VeItem *ble_dbus_create(const char *dev, const struct dev_info *info,
-			       void *data)
+			       const void *data)
 {
 	struct VeItem *droot;
 	struct VeItem *settings = get_settings();

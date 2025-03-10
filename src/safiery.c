@@ -76,7 +76,7 @@ static const struct dev_setting safiery_topdown_settings[] = {
 	},
 };
 
-static int safiery_init(struct VeItem *root, void *data)
+static int safiery_init(struct VeItem *root, const void *data)
 {
 	VeVariant v;
 

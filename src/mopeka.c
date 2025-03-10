@@ -43,8 +43,6 @@ struct mopeka_model {
 #define MOPEKA_FLAG_BUTANE	(1 << 0)
 #define MOPEKA_FLAG_TOPDOWN	(1 << 1)
 
-static const struct mopeka_model *mopeka_get_model(uint32_t hwid);
-
 static struct VeSettingProperties capacity_props = {
 	.type			= VE_FLOAT,
 	.def.value.Float	= 0.2,
@@ -122,13 +120,8 @@ static const struct dev_setting mopeka_lpg_settings[] = {
 
 static int mopeka_init(struct VeItem *root, const void *data)
 {
-	int hwid = (int)data;
-	const struct mopeka_model *model;
+	const struct mopeka_model *model = data;
 	VeVariant v;
-
-	model = mopeka_get_model(hwid);
-	if (!model)
-		return -1;
 
 	ble_dbus_set_str(root, "RawUnit", "cm");
 	ble_dbus_set_item(root, "Remaining",
@@ -482,7 +475,7 @@ int mopeka_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
 		 addr->b[5], addr->b[4], addr->b[3],
 		 addr->b[2], addr->b[1], addr->b[0]);
 
-	root = ble_dbus_create(dev, &mopeka_sensor, (void *)hwid);
+	root = ble_dbus_create(dev, &mopeka_sensor, model);
 	if (!root)
 		return -1;
 

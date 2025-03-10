@@ -222,7 +222,6 @@ int safiery_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
 	const uint8_t *uid = buf + 5;
 	char name[24];
 	char dev[16];
-	int hwid;
 
 	if (len != 10)
 		return -1;
@@ -232,13 +231,11 @@ int safiery_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
 	    uid[2] != addr->b[0])
 		return -1;
 
-	hwid = buf[0];
-
 	snprintf(dev, sizeof(dev), "%02x%02x%02x%02x%02x%02x",
 		 addr->b[5], addr->b[4], addr->b[3],
 		 addr->b[2], addr->b[1], addr->b[0]);
 
-	root = ble_dbus_create(dev, &safiery_sensor, (void *)hwid);
+	root = ble_dbus_create(dev, &safiery_sensor, NULL);
 	if (!root)
 		return -1;
 

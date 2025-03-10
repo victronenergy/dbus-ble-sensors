@@ -75,7 +75,7 @@ static const struct reg_info solarsense_adv[] = {
 		.format = &veUnitIrradiance1Dec,
 	},
 	{
-		.type	= VE_UN16,
+		.type	= VE_UN32,
 		.offset	= 20,
 		.shift	= 6,
 		.mask	= 0x7ff,
@@ -91,7 +91,6 @@ static const struct reg_info solarsense_adv[] = {
 		.offset	= 22,
 		.shift	= 1,
 		.mask	= 0x1,
-		.flags	= REG_FLAG_INVALID,
 		.name	= "TxPowerLevel",
 		.format	= &veUnitdBm,
 	},

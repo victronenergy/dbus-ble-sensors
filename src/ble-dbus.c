@@ -75,20 +75,28 @@ static int64_t sext(int64_t v, int b)
 	return v << b >> b;
 }
 
+static uint64_t zext(uint64_t v, int b)
+{
+	b = 64 - b;
+	return v << b >> b;
+}
+
 static int load_int(VeVariant *val, const struct reg_info *reg,
 		    const uint8_t *buf, int len, struct VeItem *root)
 {
 	VeDataBasicType type = reg->type;
 	float scale = reg->scale;
 	float bias = reg->bias;
+	int bits = reg->bits;
 	uint64_t v;
 	int size;
 	float f;
 	int i;
 
-	size = type_size(type);
-	if (!size)
-		return -1;
+	if (!bits)
+		bits = 8 * type_size(type);
+
+	size = (bits + reg->shift + 7) >> 3;
 
 	if (len < size)
 		return -1;
@@ -101,8 +109,7 @@ static int load_int(VeVariant *val, const struct reg_info *reg,
 			v |= *buf++ << (8 * i);
 	}
 
-	if (reg->mask)
-		v = (v >> reg->shift) & reg->mask;
+	v = zext(v >> reg->shift, bits);
 
 	if ((reg->flags & REG_FLAG_INVALID) && v == reg->inval)
 		return -1;
@@ -111,12 +118,12 @@ static int load_int(VeVariant *val, const struct reg_info *reg,
 		return reg->xlate(root, val, v);
 	} else if (scale) {
 		if (type_issigned(type))
-			f = sext(v, 8 * size);
+			f = sext(v, bits);
 		else
 			f = v;
 		veVariantFloat(val, f / scale + bias);
 	} else if (type_issigned(type)) {
-		veVariantSn32(val, sext(v, 8 * size));
+		veVariantSn32(val, sext(v, bits));
 	} else {
 		veVariantUn32(val, v);
 	}

@@ -29,7 +29,7 @@ struct reg_info {
 	uint16_t	type;
 	uint16_t	offset;
 	uint16_t	shift;
-	uint32_t	mask;
+	uint16_t	bits;
 	float		scale;
 	float		bias;
 	uint32_t	inval;

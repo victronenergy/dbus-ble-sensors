@@ -150,7 +150,7 @@ static const struct reg_info safiery_adv[] = {
 	{
 		.type	= VE_SN8,
 		.offset	= 10,
-		.shift	= 1024,
+		.scale	= 1024,
 		.name	= "AccelZ",
 		.format	= &veUnitG2Dec,
 	},

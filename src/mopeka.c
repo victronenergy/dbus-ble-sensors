@@ -353,9 +353,9 @@ static const struct reg_info mopeka_adv[] = {
 		.format	= &veUnitcm,
 	},
 	{
-		.type	= VE_UN16,
-		.offset	= 3,
-		.shift	= 14,
+		.type	= VE_UN8,
+		.offset	= 4,
+		.shift	= 6,
 		.mask	= 3,
 		.name	= "Quality",
 		.format	= &veUnitNone,

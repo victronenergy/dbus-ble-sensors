@@ -91,8 +91,8 @@ static const struct reg_info ruuvi_rawv2[] = {
 		.format	= &veUnitVolt2Dec,
 	},
 	{
-		.type	= VE_UN16,
-		.offset	= 13,
+		.type	= VE_UN8,
+		.offset	= 14,
 		.shift	= 0,
 		.mask	= 0x1f,
 		.scale	= 0.5,

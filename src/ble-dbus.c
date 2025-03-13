@@ -39,6 +39,17 @@ static inline void *unconst(const void *p)
 	return u.q;
 }
 
+static inline void set_dev_info(struct VeItem *root,
+				const struct dev_info *info)
+{
+	veItemCtx(root)->ptr = unconst(info);
+}
+
+static inline const struct dev_info *get_dev_info(struct VeItem *root)
+{
+	return veItemCtx(root)->ptr;
+}
+
 static int type_size(VeDataBasicType t)
 {
 	return (t + 1) / 2;
@@ -215,7 +226,7 @@ struct VeItem *ble_dbus_get_dev(const char *dev)
 
 int ble_dbus_is_enabled(struct VeItem *droot)
 {
-	const struct dev_info *info = veItemCtx(droot)->ptr;
+	const struct dev_info *info = get_dev_info(droot);
 	const char *dev = veItemId(droot);
 	struct VeItem *ctl = get_control();
 	char name[64];
@@ -260,7 +271,7 @@ struct VeItem *ble_dbus_create(const char *dev, const struct dev_info *info,
 		goto out;
 
 	droot = veItemGetOrCreateUid(devices, dev);
-	veItemCtx(droot)->ptr = unconst(info);
+	set_dev_info(droot, info);
 	veItemLocalSet(droot, veVariantUn32(&val, tick));
 
 	snprintf(dev_id, sizeof(dev_id), "%s%s", info->dev_prefix, dev);
@@ -293,7 +304,7 @@ int ble_dbus_add_settings(struct VeItem *droot,
 			  int num_settings)
 {
 	const char *dev = veItemId(droot);
-	const struct dev_info *info = veItemCtx(droot)->ptr;
+	const struct dev_info *info = get_dev_info(droot);
 	struct VeItem *settings = get_settings();
 	char path[64];
 	int i;
@@ -324,7 +335,7 @@ static int ble_dbus_connect(struct VeItem *droot)
 	if (dbus)
 		return 0;
 
-	info = veItemCtx(droot)->ptr;
+	info = get_dev_info(droot);
 	if (!info)
 		return -1;
 
@@ -363,7 +374,7 @@ static int ble_dbus_connect(struct VeItem *droot)
 
 int ble_dbus_set_regs(struct VeItem *droot, const uint8_t *data, int len)
 {
-	const struct dev_info *info = veItemCtx(droot)->ptr;
+	const struct dev_info *info = get_dev_info(droot);
 	int i;
 
 	for (i = 0; i < info->num_regs; i++)
@@ -375,7 +386,7 @@ int ble_dbus_set_regs(struct VeItem *droot, const uint8_t *data, int len)
 int ble_dbus_set_name(struct VeItem *droot, const char *name)
 {
 	const char *dev = veItemId(droot);
-	const struct dev_info *info = veItemCtx(droot)->ptr;
+	const struct dev_info *info = get_dev_info(droot);
 	const char *dname = name;
 	struct VeItem *ctl;
 	struct VeItem *cname;

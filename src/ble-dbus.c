@@ -279,7 +279,6 @@ struct VeItem *ble_dbus_create(const char *dev, const struct dev_info *info,
 
 	droot = veItemGetOrCreateUid(devices, dev);
 	set_dev_info(droot, info);
-	veItemLocalSet(droot, veVariantUn32(&val, tick));
 
 	snprintf(dev_id, sizeof(dev_id), "%s%s", info->dev_prefix, dev);
 	snprintf(path, sizeof(path), "Settings/Devices/%s", dev_id);

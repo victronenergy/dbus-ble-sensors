@@ -50,6 +50,23 @@ static inline const struct dev_info *get_dev_info(struct VeItem *root)
 	return veItemCtx(root)->ptr;
 }
 
+static inline void set_dev_data(struct VeItem *root, const void *data)
+{
+	veItemSetSetter(root, NULL, unconst(data));
+}
+
+static inline const void *get_dev_data(struct VeItem *root)
+{
+	return veItemCtxSet(root);
+}
+
+static const struct dev_class null_class;
+
+static inline const struct dev_class *get_dev_class(const struct dev_info *info)
+{
+	return info->dev_class ?: &null_class;
+}
+
 static int type_size(VeDataBasicType t)
 {
 	return (t + 1) / 2;
@@ -264,6 +281,7 @@ static void on_enabled_changed(struct VeItem *ena)
 struct VeItem *ble_dbus_create(const char *dev, const struct dev_info *info,
 			       const void *data)
 {
+	const struct dev_class *dclass = get_dev_class(info);
 	struct VeItem *droot;
 	struct VeItem *settings = get_settings();
 	struct VeItem *ctl = get_control();
@@ -279,6 +297,7 @@ struct VeItem *ble_dbus_create(const char *dev, const struct dev_info *info,
 
 	droot = veItemGetOrCreateUid(devices, dev);
 	set_dev_info(droot, info);
+	set_dev_data(droot, data);
 
 	snprintf(dev_id, sizeof(dev_id), "%s%s", info->dev_prefix, dev);
 	snprintf(path, sizeof(path), "Settings/Devices/%s", dev_id);
@@ -291,6 +310,11 @@ struct VeItem *ble_dbus_create(const char *dev, const struct dev_info *info,
 
 	veItemCreateSettingsProxy(settings, path, droot, "CustomName",
 				  veVariantFmt, &veUnitNone, &empty_string);
+
+	ble_dbus_add_settings(droot, dclass->settings, dclass->num_settings);
+
+	if (dclass->init)
+		dclass->init(droot, data);
 
 	ble_dbus_add_settings(droot, info->settings, info->num_settings);
 
@@ -330,8 +354,10 @@ int ble_dbus_add_settings(struct VeItem *droot,
 static int ble_dbus_connect(struct VeItem *droot)
 {
 	const char *dev = veItemId(droot);
+	const struct dev_class *dclass;
 	const struct dev_info *info;
 	struct VeDbus *dbus;
+	const char *role;
 	int dev_instance;
 	char dev_id[32];
 	char path[64];
@@ -345,10 +371,13 @@ static int ble_dbus_connect(struct VeItem *droot)
 	if (!info)
 		return -1;
 
+	dclass = get_dev_class(info);
+	role = info->role ?: dclass->role;
+
 	snprintf(dev_id, sizeof(dev_id), "%s%s", info->dev_prefix, dev);
 	snprintf(path, sizeof(path), "Settings/Devices/%s", dev_id);
 
-	dev_instance = veDbusGetVrmDeviceInstance(dev_id, info->role,
+	dev_instance = veDbusGetVrmDeviceInstance(dev_id, role,
 						  info->dev_instance);
 	if (dev_instance < 0)
 		return -1;
@@ -363,8 +392,7 @@ static int ble_dbus_connect(struct VeItem *droot)
 	ble_dbus_set_int(droot, "Status", 0);
 	veItemCreateProductId(droot, info->product_id);
 
-	snprintf(name, sizeof(name), "com.victronenergy.%s.%s",
-		 info->role, dev_id);
+	snprintf(name, sizeof(name), "com.victronenergy.%s.%s", role, dev_id);
 
 	dbus = veDbusConnectString(veDbusGetDefaultConnectString());
 	if (!dbus) {
@@ -471,6 +499,13 @@ void ble_dbus_update_alarms(struct VeItem *droot)
 
 int ble_dbus_update(struct VeItem *droot)
 {
+	const struct dev_info *info = get_dev_info(droot);
+	const struct dev_class *dclass = get_dev_class(info);
+	const void *data = get_dev_data(droot);
+
+	if (dclass->update)
+		dclass->update(droot, data);
+
 	ble_dbus_connect(droot);
 	veItemSendPendingChanges(droot);
 

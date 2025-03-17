@@ -43,7 +43,16 @@ struct reg_info {
 #define REG_FLAG_BIG_ENDIAN	(1 << 0)
 #define REG_FLAG_INVALID	(1 << 1)
 
+struct dev_class {
+	const char	*role;
+	int		num_settings;
+	const struct dev_setting *settings;
+	void		(*init)(struct VeItem *root, const void *data);
+	void		(*update)(struct VeItem *root, const void *data);
+};
+
 struct dev_info {
+	const struct dev_class *dev_class;
 	uint16_t	product_id;
 	uint16_t	dev_instance;
 	const char	*dev_prefix;

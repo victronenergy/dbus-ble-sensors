@@ -2,6 +2,7 @@ SRCS += ble-dbus.c
 SRCS += ble-scan.c
 SRCS += task.c
 
+SRCS += tank.c
 SRCS += temperature.c
 
 SRCS += mopeka.c

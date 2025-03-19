@@ -1,8 +1,5 @@
 #include <stdio.h>
 #include <stdint.h>
-#include <stdlib.h>
-#include <stdbool.h>
-#include <math.h>
 
 #include <velib/utils/ve_item_utils.h>
 #include <velib/vecan/products.h>
@@ -10,7 +7,7 @@
 
 #include "ble-dbus.h"
 #include "mopeka.h"
-#include "task.h"
+#include "tank.h"
 
 #define HW_ID_PRO			3
 #define HW_ID_PRO_200			4
@@ -21,19 +18,8 @@
 #define HW_ID_TOPDOWN_CELL		11
 #define HW_ID_UNIVERSAL			12
 
-#define FLUID_TYPE_FRESH_WATER		1
-#define FLUID_TYPE_WASTE_WATER		2
-#define FLUID_TYPE_LIVE_WELL		3
-#define FLUID_TYPE_OIL			4
-#define FLUID_TYPE_BLACK_WATER		5
-#define FLUID_TYPE_GASOLINE		6
-#define FLUID_TYPE_DIESEL		7
-#define FLUID_TYPE_LPG			8
-#define FLUID_TYPE_LNG			9
-#define FLUID_TYPE_HYDRAULIC_OIL	10
-#define FLUID_TYPE_RAW_WATER		11
-
 struct mopeka_model {
+	struct tank_info ti;	/* must be first */
 	uint32_t	hwid;
 	const char	*type;
 	const float	*coefs;
@@ -41,68 +27,6 @@ struct mopeka_model {
 };
 
 #define MOPEKA_FLAG_BUTANE	(1 << 0)
-#define MOPEKA_FLAG_TOPDOWN	(1 << 1)
-
-static struct VeSettingProperties capacity_props = {
-	.type			= VE_FLOAT,
-	.def.value.Float	= 0.2,
-	.min.value.Float	= 0,
-	.max.value.Float	= 1000,
-};
-
-static struct VeSettingProperties fluid_type_props = {
-	.type			= VE_SN32,
-	.def.value.SN32		= 0,
-	.min.value.SN32		= 0,
-	.max.value.SN32		= INT32_MAX - 3,
-};
-
-static struct VeSettingProperties empty_props = {
-	.type			= VE_FLOAT,
-	.def.value.Float	= 0,
-	.min.value.Float	= 0,
-	.max.value.Float	= 500,
-};
-
-static struct VeSettingProperties full_props = {
-	.type			= VE_FLOAT,
-	.def.value.Float	= 20,
-	.min.value.Float	= 0,
-	.max.value.Float	= 500,
-};
-
-static const struct dev_setting mopeka_settings[] = {
-	{
-		.name	= "Capacity",
-		.props	= &capacity_props,
-	},
-	{
-		.name	= "FluidType",
-		.props	= &fluid_type_props,
-	},
-};
-
-static const struct dev_setting mopeka_bottomup_settings[] = {
-	{
-		.name	= "RawValueEmpty",
-		.props	= &empty_props,
-	},
-	{
-		.name	= "RawValueFull",
-		.props	= &full_props,
-	},
-};
-
-static const struct dev_setting mopeka_topdown_settings[] = {
-	{
-		.name	= "RawValueEmpty",
-		.props	= &full_props,
-	},
-	{
-		.name	= "RawValueFull",
-		.props	= &empty_props,
-	},
-};
 
 static struct VeSettingProperties butane_props = {
 	.type			= VE_SN32,
@@ -121,25 +45,11 @@ static const struct dev_setting mopeka_lpg_settings[] = {
 static int mopeka_init(struct VeItem *root, const void *data)
 {
 	const struct mopeka_model *model = data;
-	VeVariant v;
-
-	ble_dbus_set_str(root, "RawUnit", "cm");
-	ble_dbus_set_item(root, "Remaining",
-			  veVariantInvalidType(&v, VE_FLOAT), &veUnitm3);
-	ble_dbus_set_item(root, "Level",
-			  veVariantInvalidType(&v, VE_FLOAT), &veUnitNone);
 
 	if (model->flags & MOPEKA_FLAG_BUTANE) {
 		ble_dbus_add_settings(root, mopeka_lpg_settings,
 				      array_size(mopeka_lpg_settings));
 	}
-
-	if (model->flags & MOPEKA_FLAG_TOPDOWN)
-		ble_dbus_add_settings(root, mopeka_topdown_settings,
-				      array_size(mopeka_topdown_settings));
-	else
-		ble_dbus_add_settings(root, mopeka_bottomup_settings,
-				      array_size(mopeka_bottomup_settings));
 
 	return 0;
 }
@@ -183,7 +93,7 @@ static const struct mopeka_model mopeka_models[] = {
 		.hwid	= HW_ID_PRO_200,
 		.type	= "Pro200",
 		.coefs	= mopeka_coefs_air,
-		.flags	= MOPEKA_FLAG_TOPDOWN,
+		.ti.flags = TANK_FLAG_TOPDOWN,
 	},
 	{
 		/* PRO+ bottom-up, boosted BLE */
@@ -202,14 +112,14 @@ static const struct mopeka_model mopeka_models[] = {
 		.hwid	= HW_ID_TOPDOWN_BLE,
 		.type	= "TDB",
 		.coefs	= mopeka_coefs_air,
-		.flags	= MOPEKA_FLAG_TOPDOWN,
+		.ti.flags = TANK_FLAG_TOPDOWN,
 	},
 	{
 		/* TD-40 or TD-200, top-down, Bluetooth + cellular */
 		.hwid	= HW_ID_TOPDOWN_CELL,
 		.type	= "TDC",
 		.coefs	= mopeka_coefs_air,
-		.flags	= MOPEKA_FLAG_TOPDOWN,
+		.ti.flags = TANK_FLAG_TOPDOWN,
 	},
 	{
 		/* Pro Check Universal, bottom-up */
@@ -377,76 +287,14 @@ static const struct reg_info mopeka_adv[] = {
 };
 
 static const struct dev_info mopeka_sensor = {
+	.dev_class	= &tank_class,
 	.product_id	= VE_PROD_ID_MOPEKA_SENSOR,
 	.dev_instance	= 20,
 	.dev_prefix	= "mopeka_",
-	.role		= "tank",
-	.num_settings	= array_size(mopeka_settings),
-	.settings	= mopeka_settings,
 	.num_regs	= array_size(mopeka_adv),
 	.regs		= mopeka_adv,
 	.init		= mopeka_init,
 };
-
-static void mopeka_update_level(struct VeItem *root)
-{
-	const struct mopeka_model *model;
-	struct VeItem *item;
-	int hwid;
-	float capacity;
-	int height;
-	int empty;
-	int full;
-	float level;
-	float remain;
-	VeVariant v;
-
-	hwid = veItemValueInt(root, "HardwareID");
-	model = mopeka_get_model(hwid);
-	if (!model)
-		return;
-
-	item = veItemByUid(root, "Capacity");
-	if (!item)
-		return;
-
-	veItemLocalValue(item, &v);
-	veVariantToFloat(&v);
-	capacity = v.value.Float;
-
-	height = veItemValueInt(root, "RawValue");
-	empty = veItemValueInt(root, "RawValueEmpty");
-	full = veItemValueInt(root, "RawValueFull");
-
-	if (model->flags & MOPEKA_FLAG_TOPDOWN) {
-		if (empty <= full)
-			goto out_inval;
-	} else {
-		if (empty >= full)
-			goto out_inval;
-	}
-
-	level = (float)(height - empty) / (full - empty);
-
-	if (level < 0)
-		level = 0;
-	if (level > 1)
-		level = 1;
-
-	remain = level * capacity;
-
-	ble_dbus_set_int(root, "Level", lrintf(100 * level));
-
-	item = veItemByUid(root, "Remaining");
-	veItemOwnerSet(item, veVariantFloat(&v, remain));
-
-	return;
-
-out_inval:
-	veItemInvalidate(veItemByUid(root, "Level"));
-	veItemInvalidate(veItemByUid(root, "Remaining"));
-	ble_dbus_set_int(root, "Status", 4);
-}
 
 int mopeka_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
 {
@@ -487,8 +335,6 @@ int mopeka_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
 		return 0;
 
 	ble_dbus_set_regs(root, buf, len);
-
-	mopeka_update_level(root);
 	ble_dbus_update(root);
 
 	return 0;

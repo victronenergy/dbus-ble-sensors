@@ -1,26 +1,12 @@
 #include <stdio.h>
 #include <stdint.h>
-#include <stdlib.h>
 
 #include <velib/utils/ve_item_utils.h>
 #include <velib/vecan/products.h>
 
 #include "ble-dbus.h"
 #include "ruuvi.h"
-
-static struct VeSettingProperties temp_type = {
-	.type		= VE_SN32,
-	.def.value.SN32	= 2,
-	.min.value.SN32	= 0,
-	.max.value.SN32	= 6,
-};
-
-static const struct dev_setting ruuvi_settings[] = {
-	{
-		.name	= "TemperatureType",
-		.props	= &temp_type,
-	},
-};
+#include "temperature.h"
 
 static const struct reg_info ruuvi_rawv2[] = {
 	{
@@ -144,12 +130,10 @@ static const struct alarm ruuvi_alarms[] = {
 };
 
 static const struct dev_info ruuvi_tag = {
+	.dev_class	= &temperature_class,
 	.product_id	= VE_PROD_ID_RUUVI_TAG,
 	.dev_instance	= 20,
 	.dev_prefix	= "ruuvi_",
-	.role		= "temperature",
-	.num_settings	= array_size(ruuvi_settings),
-	.settings	= ruuvi_settings,
 	.num_regs	= array_size(ruuvi_rawv2),
 	.regs		= ruuvi_rawv2,
 	.num_alarms	= array_size(ruuvi_alarms),

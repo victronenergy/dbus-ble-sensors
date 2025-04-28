@@ -386,6 +386,8 @@ static int ble_dbus_connect(struct VeItem *droot)
 	ble_dbus_set_str(droot, "Mgmt/ProcessVersion", VERSION);
 	ble_dbus_set_str(droot, "Mgmt/Connection", "Bluetooth LE");
 	ble_dbus_set_int(droot, "Connected", 1);
+	ble_dbus_set_int(droot, "Devices/0/ProductId", info->product_id);
+	ble_dbus_set_int(droot, "Devices/0/DeviceInstance", dev_instance);
 	ble_dbus_set_int(droot, "DeviceInstance", dev_instance);
 	ble_dbus_set_str(droot, "ProductName",
 			 veProductGetName(info->product_id));

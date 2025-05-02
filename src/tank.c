@@ -3,6 +3,8 @@
 #include "ble-dbus.h"
 #include "tank.h"
 
+static void tank_update(struct VeItem *root, const void *data);
+
 static struct VeSettingProperties capacity_props = {
 	.type			= VE_FLOAT,
 	.def.value.Float	= 0.2,
@@ -64,6 +66,14 @@ static const struct dev_setting tank_topdown_settings[] = {
 	},
 };
 
+static void on_tank_config_changed(struct VeItem *item)
+{
+	struct VeItem *root = veItemParent(item);
+
+	tank_update(root, NULL);
+	veItemSendPendingChanges(root);
+}
+
 static void tank_init(struct VeItem *root, const void *data)
 {
 	const struct tank_info *ti = data;
@@ -77,15 +87,28 @@ static void tank_init(struct VeItem *root, const void *data)
 
 	if (ti->flags & TANK_FLAG_TOPDOWN)
 		ble_dbus_add_settings(root, tank_topdown_settings,
-				      array_size(tank_topdown_settings));
+					  array_size(tank_topdown_settings));
 	else
 		ble_dbus_add_settings(root, tank_bottomup_settings,
-				      array_size(tank_bottomup_settings));
+					  array_size(tank_bottomup_settings));
+
+	struct VeItem *item;
+	item = veItemByUid(root, "RawValueEmpty");
+	if (item)
+		veItemSetChanged(item, on_tank_config_changed);
+
+	item = veItemByUid(root, "RawValueFull");
+	if (item)
+		veItemSetChanged(item, on_tank_config_changed);
+
+	item = veItemByUid(root, "Capacity");
+	if (item)
+		veItemSetChanged(item, on_tank_config_changed);
 }
 
 static void tank_update(struct VeItem *root, const void *data)
 {
-	const struct tank_info *ti = data;
+	const struct tank_info *ti = data ? data : &(const struct tank_info){0};
 	struct VeItem *item;
 	float capacity;
 	float height;

@@ -3,6 +3,9 @@
 #include "ble-dbus.h"
 #include "tank.h"
 
+static void tank_setting_changed(struct VeItem *root, struct VeItem *setting,
+				 const void *data);
+
 static struct VeSettingProperties capacity_props = {
 	.type			= VE_FLOAT,
 	.def.value.Float	= 0.2,
@@ -35,6 +38,7 @@ static const struct dev_setting tank_settings[] = {
 	{
 		.name	= "Capacity",
 		.props	= &capacity_props,
+		.onchange = tank_setting_changed,
 	},
 	{
 		.name	= "FluidType",
@@ -46,10 +50,12 @@ static const struct dev_setting tank_bottomup_settings[] = {
 	{
 		.name	= "RawValueEmpty",
 		.props	= &empty_props,
+		.onchange = tank_setting_changed,
 	},
 	{
 		.name	= "RawValueFull",
 		.props	= &full_props,
+		.onchange = tank_setting_changed,
 	},
 };
 
@@ -57,10 +63,12 @@ static const struct dev_setting tank_topdown_settings[] = {
 	{
 		.name	= "RawValueEmpty",
 		.props	= &full_props,
+		.onchange = tank_setting_changed,
 	},
 	{
 		.name	= "RawValueFull",
 		.props	= &empty_props,
+		.onchange = tank_setting_changed,
 	},
 };
 
@@ -128,6 +136,13 @@ out_inval:
 	veItemInvalidate(veItemByUid(root, "Level"));
 	veItemInvalidate(veItemByUid(root, "Remaining"));
 	ble_dbus_set_int(root, "Status", 4);
+}
+
+static void tank_setting_changed(struct VeItem *root, struct VeItem *setting,
+				 const void *data)
+{
+	tank_update(root, data);
+	veItemSendPendingChanges(root);
 }
 
 const struct dev_class tank_class = {

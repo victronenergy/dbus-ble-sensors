@@ -329,6 +329,15 @@ out:
 	return droot;
 }
 
+static void on_setting_changed(struct VeItem *item)
+{
+	struct VeItem *droot = veItemCtx(item)->ptr;
+	const struct dev_setting *ds = get_dev_data(item);
+	const void *data = get_dev_data(droot);
+
+	ds->onchange(droot, item, data);
+}
+
 int ble_dbus_add_settings(struct VeItem *droot,
 			  const struct dev_setting *dev_settings,
 			  int num_settings)
@@ -336,17 +345,25 @@ int ble_dbus_add_settings(struct VeItem *droot,
 	const char *dev = veItemId(droot);
 	const struct dev_info *info = get_dev_info(droot);
 	struct VeItem *settings = get_settings();
+	struct VeItem *item;
 	char path[64];
 	int i;
 
 	snprintf(path, sizeof(path), "Settings/Devices/%s%s",
 		 info->dev_prefix, dev);
 
-	for (i = 0; i < num_settings; i++)
-		veItemCreateSettingsProxy(settings, path, droot,
-					  dev_settings[i].name,
-					  veVariantFmt, &veUnitNone,
-					  dev_settings[i].props);
+	for (i = 0; i < num_settings; i++) {
+		const struct dev_setting *ds = &dev_settings[i];
+
+		item = veItemCreateSettingsProxy(settings, path, droot,
+			ds->name, veVariantFmt, &veUnitNone, ds->props);
+
+		if (ds->onchange) {
+			veItemCtx(item)->ptr = droot;
+			set_dev_data(item, ds);
+			veItemSetChanged(item, on_setting_changed);
+		}
+	}
 
 	return 0;
 }

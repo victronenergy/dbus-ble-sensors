@@ -13,6 +13,9 @@
 struct dev_setting {
 	char		*name;
 	struct VeSettingProperties *props;
+	void		(*onchange)(struct VeItem *root,
+				    struct VeItem *setting,
+				    const void *data);
 };
 
 struct alarm {

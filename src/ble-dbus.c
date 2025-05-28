@@ -9,7 +9,6 @@
 #include <velib/utils/ve_item_utils.h>
 #include <velib/types/ve_dbus_item.h>
 #include <velib/vecan/products.h>
-#include <velib/ve_regs.h>
 
 #include "ble-dbus.h"
 #include "ble-scan.h"

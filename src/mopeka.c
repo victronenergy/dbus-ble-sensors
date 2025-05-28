@@ -3,7 +3,6 @@
 
 #include <velib/utils/ve_item_utils.h>
 #include <velib/vecan/products.h>
-#include <velib/utils/ve_logger.h>
 
 #include "ble-dbus.h"
 #include "mopeka.h"

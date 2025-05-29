@@ -1,10 +1,21 @@
+#include <stdio.h>
+#include <string.h>
 #include <math.h>
 
 #include "ble-dbus.h"
 #include "tank.h"
 
+#define TANK_SHAPE_MAX_POINTS		10
+
+struct tank_data {
+	int		shape_map_len;
+	float		shape_map[TANK_SHAPE_MAX_POINTS + 2][2];
+};
+
 static void tank_setting_changed(struct VeItem *root, struct VeItem *setting,
 				 const void *data);
+static void tank_shape_changed(struct VeItem *root, struct VeItem *setting,
+			       const void *data);
 
 static struct VeSettingProperties capacity_props = {
 	.type			= VE_FLOAT,
@@ -34,6 +45,11 @@ static struct VeSettingProperties full_props = {
 	.max.value.Float	= 500,
 };
 
+static struct VeSettingProperties shape_props = {
+	.type			= VE_HEAP_STR,
+	.def.value.Ptr		= "",
+};
+
 static const struct dev_setting tank_settings[] = {
 	{
 		.name	= "Capacity",
@@ -43,6 +59,11 @@ static const struct dev_setting tank_settings[] = {
 	{
 		.name	= "FluidType",
 		.props	= &fluid_type_props,
+	},
+	{
+		.name	= "Shape",
+		.props	= &shape_props,
+		.onchange = tank_shape_changed,
 	},
 };
 
@@ -94,6 +115,7 @@ static void tank_init(struct VeItem *root, const void *data)
 static void tank_update(struct VeItem *root, const void *data)
 {
 	const struct tank_info *ti = data;
+	struct tank_data *td = ble_dbus_get_cdata(root);
 	struct VeItem *item;
 	float capacity;
 	float height;
@@ -102,6 +124,7 @@ static void tank_update(struct VeItem *root, const void *data)
 	float level;
 	float remain;
 	VeVariant v;
+	int i;
 
 	capacity = veItemValueFloat(root, "Capacity");
 	height = veItemValueFloat(root, "RawValue");
@@ -122,6 +145,17 @@ static void tank_update(struct VeItem *root, const void *data)
 		level = 0;
 	if (level > 1)
 		level = 1;
+
+	for (i = 1; i < td->shape_map_len; i++) {
+		if (td->shape_map[i][0] >= level) {
+			float s0 = td->shape_map[i - 1][0];
+			float s1 = td->shape_map[i    ][0];
+			float l0 = td->shape_map[i - 1][1];
+			float l1 = td->shape_map[i    ][1];
+			level = l0 + (level - s0) / (s1 - s0) * (l1 - l0);
+			break;
+		}
+	}
 
 	remain = level * capacity;
 
@@ -145,10 +179,76 @@ static void tank_setting_changed(struct VeItem *root, struct VeItem *setting,
 	veItemSendPendingChanges(root);
 }
 
+static void tank_shape_changed(struct VeItem *root, struct VeItem *setting,
+			       const void *data)
+{
+	struct tank_data *td = ble_dbus_get_cdata(root);
+	VeVariant shape;
+	const char *map;
+	int i;
+
+	if (!veVariantIsValid(veItemLocalValue(setting, &shape))) {
+		fprintf(stderr, "invalid shape value");
+		goto reset;
+	}
+
+	map = shape.value.Ptr;
+
+	if (!map[0])
+		goto reset;
+
+	td->shape_map[0][0] = 0;
+	td->shape_map[0][1] = 0;
+	i = 1;
+
+	while (i < TANK_SHAPE_MAX_POINTS) {
+		unsigned int s, l;
+
+		if (sscanf(map, "%u:%u", &s, &l) < 2) {
+			fprintf(stderr, "malformed shape spec");
+			goto reset;
+		}
+
+		if (s < 1 || s > 99 || l < 1 || l > 99) {
+			fprintf(stderr, "shape level out of range 1-99");
+			goto reset;
+		}
+
+		if (s <= td->shape_map[i - 1][0] ||
+		    l <= td->shape_map[i - 1][1]) {
+			fprintf(stderr, "shape level non-increasing");
+			goto reset;
+		}
+
+		td->shape_map[i][0] = s / 100.0;
+		td->shape_map[i][1] = l / 100.0;
+		i++;
+
+		map = strchr(map, ',');
+		if (!map)
+			break;
+
+		map++;
+	}
+
+	td->shape_map[i][0] = 1;
+	td->shape_map[i][1] = 1;
+	td->shape_map_len = i + 1;
+
+out:
+	tank_setting_changed(root, setting, data);
+	return;
+
+reset:
+	td->shape_map_len = 0;
+	goto out;
+}
+
 const struct dev_class tank_class = {
 	.role		= "tank",
 	.num_settings	= array_size(tank_settings),
 	.settings	= tank_settings,
 	.init		= tank_init,
 	.update		= tank_update,
+	.pdata_size	= sizeof(struct tank_data),
 };

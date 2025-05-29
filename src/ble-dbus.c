@@ -17,6 +17,7 @@
 struct device {
 	const struct dev_info	*info;
 	const void		*data;
+	char			pdata[];
 };
 
 const VeVariantUnitFmt veUnitHectoPascal = { 0, "hPa" };
@@ -285,9 +286,11 @@ static void on_enabled_changed(struct VeItem *ena)
 static void init_dev(struct VeItem *root, const struct dev_info *info,
 		     const void *data)
 {
+	const struct dev_class *dclass = get_dev_class(info);
+	int pdata_size = alloc_size(info->pdata_size) + dclass->pdata_size;
 	struct device *d;
 
-	d = alloc_item_data(root, sizeof(*d));
+	d = alloc_item_data(root, sizeof(*d) + pdata_size);
 	d->info = info;
 	d->data = data;
 }
@@ -340,6 +343,18 @@ out:
 	veItemLocalSet(droot, veVariantUn32(&val, tick));
 
 	return droot;
+}
+
+void *ble_dbus_get_pdata(struct VeItem *root)
+{
+	struct device *d = veItemCtx(root)->ptr;
+	return d->pdata;
+}
+
+void *ble_dbus_get_cdata(struct VeItem *root)
+{
+	struct device *d = veItemCtx(root)->ptr;
+	return d->pdata + alloc_size(d->info->pdata_size);
 }
 
 struct setting_data {

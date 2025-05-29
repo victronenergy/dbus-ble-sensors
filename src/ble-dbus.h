@@ -1,6 +1,7 @@
 #ifndef BLE_DBUS_H
 #define BLE_DBUS_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 #include <velib/types/types.h>
@@ -8,6 +9,8 @@
 #include <velib/types/ve_item.h>
 #include <velib/utils/ve_item_utils.h>
 
+#define align(x, a) (((x) + (a) - 1) & ~((a) - 1))
+#define alloc_size(x) align(x, sizeof(max_align_t))
 #define array_size(a) (sizeof(a) / sizeof(a[0]))
 
 struct dev_setting {
@@ -50,6 +53,7 @@ struct dev_class {
 	const char	*role;
 	int		num_settings;
 	const struct dev_setting *settings;
+	int		pdata_size;
 	void		(*init)(struct VeItem *root, const void *data);
 	void		(*update)(struct VeItem *root, const void *data);
 };
@@ -66,6 +70,7 @@ struct dev_info {
 	const struct reg_info *regs;
 	int		num_alarms;
 	const struct alarm *alarms;
+	int		pdata_size;
 	int		(*init)(struct VeItem *root, const void *data);
 };
 
@@ -83,6 +88,8 @@ int ble_dbus_add_interface(const char *name, const char *addr);
 struct VeItem *ble_dbus_create(const char *dev, const struct dev_info *info,
 			       const void *data);
 struct VeItem *ble_dbus_get_dev(const char *dev);
+void *ble_dbus_get_pdata(struct VeItem *root);
+void *ble_dbus_get_cdata(struct VeItem *root);
 int ble_dbus_add_settings(struct VeItem *droot,
 			  const struct dev_setting *settings,
 			  int num_settings);

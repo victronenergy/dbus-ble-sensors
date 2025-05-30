@@ -40,7 +40,7 @@ static void connect_dbus(void)
 
 	dbus = veDbusGetDefaultBus();
 	if (!dbus) {
-		printf("dbus connection failed\n");
+		fprintf(stderr, "dbus connection failed\n");
 		pltExit(5);
 	}
 
@@ -54,13 +54,13 @@ static void connect_dbus(void)
 	}
 
 	if (tries < 0) {
-		printf("error connecting to settings service");
+		fprintf(stderr, "error connecting to settings service");
 		pltExit(1);
 	}
 
 	dbus = veDbusConnectString(veDbusGetDefaultConnectString());
 	if (!dbus) {
-		printf("dbus connection failed\n");
+		fprintf(stderr, "dbus connection failed\n");
 		pltExit(5);
 	}
 
@@ -88,7 +88,7 @@ void taskInit(void)
 
 	err = ble_scan_open();
 	if (err < 0) {
-		printf("no device found\n");
+		fprintf(stderr, "no device found\n");
 		pltExit(1);
 	}
 

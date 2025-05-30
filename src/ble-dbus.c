@@ -170,7 +170,7 @@ int ble_dbus_set_item(struct VeItem *root, const char *path, VeVariant *val,
 	struct VeItem *item = veItemGetOrCreateUid(root, path);
 
 	if (!item) {
-		printf("failed to create item %s\n", path);
+		fprintf(stderr, "failed to create item %s\n", path);
 		return -1;
 	}
 
@@ -435,7 +435,7 @@ static int ble_dbus_connect(struct VeItem *droot)
 
 	dbus = veDbusConnectString(veDbusGetDefaultConnectString());
 	if (!dbus) {
-		printf("%s: dbus connection failed\n", dev);
+		fprintf(stderr, "%s: dbus connection failed\n", dev);
 		return -1;
 	}
 

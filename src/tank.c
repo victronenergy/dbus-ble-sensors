@@ -50,6 +50,27 @@ static struct VeSettingProperties shape_props = {
 	.def.value.Ptr		= "",
 };
 
+static struct VeSettingProperties alarm_enable_props = {
+    .type           = VE_SN32,
+    .def.value.SN32 = 0,
+    .min.value.SN32 = 0,
+    .max.value.SN32 = 1,
+};
+
+static struct VeSettingProperties alarm_level_props = {
+    .type           = VE_SN32,
+    .def.value.SN32 = 10,
+    .min.value.SN32 = 0,
+    .max.value.SN32 = 100,
+};
+
+static struct VeSettingProperties alarm_delay_props = {
+    .type           = VE_SN32,
+    .def.value.SN32 = 30,
+    .min.value.SN32 = 0,
+    .max.value.SN32 = 3600,
+};
+
 static const struct dev_setting tank_settings[] = {
 	{
 		.name	= "Capacity",
@@ -60,6 +81,34 @@ static const struct dev_setting tank_settings[] = {
 		.name	= "FluidType",
 		.props	= &fluid_type_props,
 	},
+		{
+        .name   = "AlarmHighEnable",
+        .props  = &alarm_enable_props,
+        .onchange = tank_setting_changed,
+    },
+    {
+        .name   = "AlarmHighRestore",
+        .props  = &alarm_level_props,
+        .onchange = tank_setting_changed,
+    },
+    {
+        .name   = "AlarmHighDelay",
+        .props  = &alarm_delay_props,
+    },
+    {
+        .name   = "AlarmLowEnable",
+        .props  = &alarm_enable_props,
+        .onchange = tank_setting_changed,
+    },
+    {
+        .name   = "AlarmLowRestore",
+        .props  = &alarm_level_props,
+        .onchange = tank_setting_changed,
+    },
+    {
+        .name   = "AlarmLowDelay",
+        .props  = &alarm_delay_props,
+    },
 };
 
 static const struct dev_setting tank_bottomup_settings[] = {
@@ -290,6 +339,13 @@ static void tank_init(struct VeItem *root, const void *data)
 	ble_dbus_set_item(root, "Level",
 			  veVariantInvalidType(&v, VE_FLOAT), &veUnitNone);
 
+	ble_dbus_set_int(root, "Alarms/High/Active", 0);
+    ble_dbus_set_int(root, "Alarms/High/State", 0);
+    ble_dbus_set_int(root, "Alarms/High/Restore", 90);
+    ble_dbus_set_int(root, "Alarms/Low/Active", 0);
+    ble_dbus_set_int(root, "Alarms/Low/State", 0);
+    ble_dbus_set_int(root, "Alarms/Low/Restore", 10);
+
 	snprintf(path, sizeof(path), "Settings/Devices/%s%s",
 		 info->dev_prefix, dev);
 	veItemCreateSettingsProxy(settings, path, root, "Shape",
@@ -301,6 +357,31 @@ static void tank_init(struct VeItem *root, const void *data)
 	else
 		ble_dbus_add_settings(root, tank_bottomup_settings,
 					  array_size(tank_bottomup_settings));
+}
+
+static void update_tank_alarms(struct VeItem *root, float level_percent)
+{
+    if (veItemValueInt(root, "AlarmHighEnable")) {
+        int high_threshold = veItemValueInt(root, "AlarmHighRestore");
+        int high_active = level_percent >= high_threshold;
+        ble_dbus_set_int(root, "Alarms/High/Active", high_active);
+        ble_dbus_set_int(root, "Alarms/High/State", high_active ? 80 : 0);
+        ble_dbus_set_int(root, "Alarms/High/Restore", high_threshold);
+    } else {
+        ble_dbus_set_int(root, "Alarms/High/Active", 0);
+        ble_dbus_set_int(root, "Alarms/High/State", 0);
+    }
+
+    if (veItemValueInt(root, "AlarmLowEnable")) {
+        int low_threshold = veItemValueInt(root, "AlarmLowRestore");
+        int low_active = level_percent <= low_threshold;
+        ble_dbus_set_int(root, "Alarms/Low/Active", low_active);
+        ble_dbus_set_int(root, "Alarms/Low/State", low_active ? 15 : 0);
+        ble_dbus_set_int(root, "Alarms/Low/Restore", low_threshold);
+    } else {
+        ble_dbus_set_int(root, "Alarms/Low/Active", 0);
+        ble_dbus_set_int(root, "Alarms/Low/State", 0);
+    }
 }
 
 static void tank_update(struct VeItem *root, const void *data)
@@ -363,12 +444,19 @@ static void tank_update(struct VeItem *root, const void *data)
 	item = veItemByUid(root, "Remaining");
 	veItemOwnerSet(item, veVariantFloat(&v, remain));
 
+	update_tank_alarms(root, level * 100);
+
 	return;
 
 out_inval:
 	veItemInvalidate(veItemByUid(root, "Level"));
 	veItemInvalidate(veItemByUid(root, "Remaining"));
 	ble_dbus_set_int(root, "Status", 4);
+
+	ble_dbus_set_int(root, "Alarms/High/Active", 0);
+	ble_dbus_set_int(root, "Alarms/High/State", 0);
+	ble_dbus_set_int(root, "Alarms/Low/Active", 0);
+	ble_dbus_set_int(root, "Alarms/Low/State", 0);
 }
 
 static void tank_setting_changed(struct VeItem *root, struct VeItem *setting,

@@ -11,6 +11,27 @@
 
 #define HW_ID_TOPDOWN_BLE		10
 
+static int safiery_xlate_level(struct VeItem *root, VeVariant *val, uint64_t rv)
+{
+	struct VeItem *shape_item;
+	float level;
+	VeVariant shape_val;
+
+	shape_item = veItemByUid(root, "Shape");
+	if (shape_item && veItemIsValid(shape_item)) {
+		veItemLocalValue(shape_item, &shape_val);
+		if (veVariantIsValid(&shape_val) && shape_val.value.Ptr && strlen(shape_val.value.Ptr) > 0) {
+			level = rv / 10.0;
+			veVariantFloat(val, level);
+			return 0;
+		}
+	}
+
+	level = rv / 10.0;
+	veVariantFloat(val, level);
+	return 0;
+}
+
 static const struct reg_info safiery_adv[] = {
 	{
 		.type	= VE_UN8,
@@ -48,7 +69,7 @@ static const struct reg_info safiery_adv[] = {
 		.type	= VE_UN16,
 		.offset	= 3,
 		.bits	= 14,
-		.scale	= 10,
+		.xlate	= safiery_xlate_level,
 		.name	= "RawValue",
 		.format	= &veUnitcm,
 	},
@@ -99,8 +120,8 @@ int safiery_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
 		return -1;
 
 	if (uid[0] != addr->b[2] ||
-	    uid[1] != addr->b[1] ||
-	    uid[2] != addr->b[0])
+		uid[1] != addr->b[1] ||
+		uid[2] != addr->b[0])
 		return -1;
 
 	snprintf(dev, sizeof(dev), "%02x%02x%02x%02x%02x%02x",
@@ -123,4 +144,3 @@ int safiery_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
 
 	return 0;
 }
-

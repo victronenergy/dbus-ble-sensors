@@ -48,7 +48,7 @@ static int mopeka_init(struct VeItem *root, const void *data)
 
 	if (model->flags & MOPEKA_FLAG_BUTANE) {
 		ble_dbus_add_settings(root, mopeka_lpg_settings,
-				      array_size(mopeka_lpg_settings));
+					  array_size(mopeka_lpg_settings));
 	}
 
 	return 0;
@@ -151,11 +151,13 @@ static int mopeka_xlate_level(struct VeItem *root, VeVariant *val, uint64_t rv)
 {
 	const struct mopeka_model *model;
 	const float *coefs;
+	struct VeItem *shape_item;
 	float scale = 0;
 	float level;
 	int hwid;
 	int temp;
 	int tank_level_ext;
+	VeVariant shape_val;
 
 	hwid = veItemValueInt(root, "HardwareID");
 	temp = veItemValueInt(root, "Temperature");
@@ -173,6 +175,16 @@ static int mopeka_xlate_level(struct VeItem *root, VeVariant *val, uint64_t rv)
 	tank_level_ext = veItemValueInt(root, "TankLevelExtension");
 	if (tank_level_ext)
 		rv = 16384 + 4 * rv;
+
+	shape_item = veItemByUid(root, "Shape");
+	if (shape_item && veItemIsValid(shape_item)) {
+		veItemLocalValue(shape_item, &shape_val);
+		if (veVariantIsValid(&shape_val) && shape_val.value.Ptr && strlen(shape_val.value.Ptr) > 0) {
+			level = rv / 100.0;
+			veVariantFloat(val, level);
+			return 0;
+		}
+	}
 
 	model = mopeka_get_model(hwid);
 	if (!model)
@@ -309,8 +321,8 @@ int mopeka_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
 		return -1;
 
 	if (uid[0] != addr->b[2] ||
-	    uid[1] != addr->b[1] ||
-	    uid[2] != addr->b[0])
+		uid[1] != addr->b[1] ||
+		uid[2] != addr->b[0])
 		return -1;
 
 	hwid = buf[0];
@@ -339,4 +351,3 @@ int mopeka_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
 
 	return 0;
 }
-

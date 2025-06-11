@@ -143,7 +143,6 @@ static const struct alarm solarsense_alarms[] = {
 	{
 		.name	= "LowBattery",
 		.item	= "BatteryVoltage",
-		.dir	= -1,
 		.level	= 3.2,
 		.hyst	= 0.4,
 	},

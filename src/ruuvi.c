@@ -123,7 +123,6 @@ static const struct alarm ruuvi_alarms[] = {
 	{
 		.name	= "LowBattery",
 		.item	= "BatteryVoltage",
-		.dir	= -1,
 		.hyst	= 0.4,
 		.get_level = ruuvi_lowbat,
 	},

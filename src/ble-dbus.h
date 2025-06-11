@@ -24,12 +24,14 @@ struct dev_setting {
 struct alarm {
 	const char	*name;
 	const char	*item;
-	int		dir;
+	uint32_t	flags;
 	float		level;
 	float		hyst;
 	float		(*get_level)(struct VeItem *root,
 				     const struct alarm *alarm);
 };
+
+#define ALARM_FLAG_HIGH		(1 << 0)
 
 struct reg_info {
 	uint16_t	type;

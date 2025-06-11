@@ -533,7 +533,7 @@ static void update_alarm(struct VeItem *droot, const struct alarm *alarm)
 	veItemLocalValue(item, &val);
 	veVariantToFloat(&val);
 
-	if (alarm->dir > 0)
+	if (alarm->flags & ALARM_FLAG_HIGH)
 		active = val.value.Float > level;
 	else
 		active = val.value.Float < level;

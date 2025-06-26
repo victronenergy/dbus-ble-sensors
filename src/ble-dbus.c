@@ -412,7 +412,6 @@ static int ble_dbus_connect(struct VeItem *droot)
 	const char *role;
 	int dev_instance;
 	char dev_id[32];
-	char path[64];
 	char name[64];
 
 	dbus = veItemDbus(droot);
@@ -427,7 +426,6 @@ static int ble_dbus_connect(struct VeItem *droot)
 	role = info->role ?: dclass->role;
 
 	snprintf(dev_id, sizeof(dev_id), "%s%s", info->dev_prefix, dev);
-	snprintf(path, sizeof(path), "Settings/Devices/%s", dev_id);
 
 	dev_instance = veDbusGetVrmDeviceInstance(dev_id, role,
 						  info->dev_instance);

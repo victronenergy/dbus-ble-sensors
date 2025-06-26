@@ -266,6 +266,64 @@ int ble_dbus_is_enabled(struct VeItem *droot)
 	return veItemValueInt(ctl, name) == 1;
 }
 
+void *ble_dbus_get_pdata(struct VeItem *root)
+{
+	struct device *d = veItemCtx(root)->ptr;
+	return d->pdata;
+}
+
+void *ble_dbus_get_cdata(struct VeItem *root)
+{
+	struct device *d = veItemCtx(root)->ptr;
+	return d->pdata + alloc_size(d->info->pdata_size);
+}
+
+struct setting_data {
+	struct VeItem			*root;
+	const struct dev_setting	*setting;
+};
+
+static void on_setting_changed(struct VeItem *item)
+{
+	struct setting_data *d = veItemCtx(item)->ptr;
+	const struct dev_setting *ds = d->setting;
+	const void *data = get_dev_data(d->root);
+
+	ds->onchange(d->root, item, data);
+}
+
+int ble_dbus_add_settings(struct VeItem *droot,
+			  const struct dev_setting *dev_settings,
+			  int num_settings)
+{
+	const char *dev = veItemId(droot);
+	const struct dev_info *info = get_dev_info(droot);
+	struct VeItem *settings = get_settings();
+	struct VeItem *item;
+	char path[64];
+	int i;
+
+	snprintf(path, sizeof(path), "Settings/Devices/%s%s",
+		 info->dev_prefix, dev);
+
+	for (i = 0; i < num_settings; i++) {
+		const struct dev_setting *ds = &dev_settings[i];
+		struct setting_data *d;
+
+		item = veItemCreateSettingsProxy(settings, path, droot,
+			ds->name, veVariantFmt, &veUnitNone, ds->props);
+
+		if (ds->onchange) {
+			d = alloc_item_data(item, sizeof(*d));
+			d->root = droot;
+			d->setting = ds;
+			veItemSetChanged(item, on_setting_changed);
+		}
+	}
+
+	return 0;
+}
+
 static void on_enabled_changed(struct VeItem *ena)
 {
 	struct VeItem *droot = veItemCtx(ena)->ptr;
@@ -343,64 +401,6 @@ out:
 	veItemLocalSet(droot, veVariantUn32(&val, tick));
 
 	return droot;
-}
-
-void *ble_dbus_get_pdata(struct VeItem *root)
-{
-	struct device *d = veItemCtx(root)->ptr;
-	return d->pdata;
-}
-
-void *ble_dbus_get_cdata(struct VeItem *root)
-{
-	struct device *d = veItemCtx(root)->ptr;
-	return d->pdata + alloc_size(d->info->pdata_size);
-}
-
-struct setting_data {
-	struct VeItem			*root;
-	const struct dev_setting	*setting;
-};
-
-static void on_setting_changed(struct VeItem *item)
-{
-	struct setting_data *d = veItemCtx(item)->ptr;
-	const struct dev_setting *ds = d->setting;
-	const void *data = get_dev_data(d->root);
-
-	ds->onchange(d->root, item, data);
-}
-
-int ble_dbus_add_settings(struct VeItem *droot,
-			  const struct dev_setting *dev_settings,
-			  int num_settings)
-{
-	const char *dev = veItemId(droot);
-	const struct dev_info *info = get_dev_info(droot);
-	struct VeItem *settings = get_settings();
-	struct VeItem *item;
-	char path[64];
-	int i;
-
-	snprintf(path, sizeof(path), "Settings/Devices/%s%s",
-		 info->dev_prefix, dev);
-
-	for (i = 0; i < num_settings; i++) {
-		const struct dev_setting *ds = &dev_settings[i];
-		struct setting_data *d;
-
-		item = veItemCreateSettingsProxy(settings, path, droot,
-			ds->name, veVariantFmt, &veUnitNone, ds->props);
-
-		if (ds->onchange) {
-			d = alloc_item_data(item, sizeof(*d));
-			d->root = droot;
-			d->setting = ds;
-			veItemSetChanged(item, on_setting_changed);
-		}
-	}
-
-	return 0;
 }
 
 static int ble_dbus_connect(struct VeItem *droot)

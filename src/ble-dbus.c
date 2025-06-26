@@ -283,6 +283,15 @@ struct setting_data {
 	const struct dev_setting	*setting;
 };
 
+static int settings_path(struct VeItem *droot, char *buf, size_t size)
+{
+	const char *dev = veItemId(droot);
+	const struct dev_info *info = get_dev_info(droot);
+
+	return snprintf(buf, size, "Settings/Devices/%s%s",
+			info->dev_prefix, dev);
+}
+
 static void on_setting_changed(struct VeItem *item)
 {
 	struct setting_data *d = veItemCtx(item)->ptr;
@@ -296,15 +305,12 @@ int ble_dbus_add_settings(struct VeItem *droot,
 			  const struct dev_setting *dev_settings,
 			  int num_settings)
 {
-	const char *dev = veItemId(droot);
-	const struct dev_info *info = get_dev_info(droot);
 	struct VeItem *settings = get_settings();
 	struct VeItem *item;
 	char path[64];
 	int i;
 
-	snprintf(path, sizeof(path), "Settings/Devices/%s%s",
-		 info->dev_prefix, dev);
+	settings_path(droot, path, sizeof(path));
 
 	for (i = 0; i < num_settings; i++) {
 		const struct dev_setting *ds = &dev_settings[i];

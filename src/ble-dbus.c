@@ -496,26 +496,44 @@ int ble_dbus_set_name(struct VeItem *droot, const char *name)
 	return 0;
 }
 
-static void update_alarm(struct VeItem *droot, const struct alarm *alarm)
+static int alarm_name(const struct alarm *alarm, char *buf, size_t size)
 {
-	struct VeItem *alarm_item;
-	struct VeItem *item;
-	VeVariant val;
-	float level;
-	int active;
-	char buf[64];
+	if (alarm->flags & ALARM_FLAG_CONFIG)
+		return snprintf(buf, size, "Alarms/%s/State", alarm->name);
 
-	item = veItemByUid(droot, alarm->item);
-	if (!item || !veItemIsValid(item))
-		return;
+	return snprintf(buf, size, "Alarms/%s", alarm->name);
+}
+
+static float alarm_level(struct VeItem *droot, const struct alarm *alarm,
+			 int active)
+{
+	float level;
 
 	if (alarm->get_level)
 		level = alarm->get_level(droot, alarm);
 	else
 		level = alarm->level;
 
+	if (active)
+		level += alarm->hyst;
 
-	snprintf(buf, sizeof(buf), "Alarms/%s", alarm->name);
+	return level;
+}
+
+static void update_alarm(struct VeItem *droot, const struct alarm *alarm)
+{
+	struct VeItem *alarm_item;
+	struct VeItem *item;
+	VeVariant val;
+	float level;
+	int active = 0;
+	char buf[64];
+
+	item = veItemByUid(droot, alarm->item);
+	if (!item || !veItemIsValid(item))
+		return;
+
+	alarm_name(alarm, buf, sizeof(buf));
 	alarm_item = veItemGetOrCreateUid(droot, buf);
 	if (!alarm_item)
 		return;
@@ -523,10 +541,10 @@ static void update_alarm(struct VeItem *droot, const struct alarm *alarm)
 	if (veItemIsValid(alarm_item)) {
 		veItemLocalValue(alarm_item, &val);
 		veVariantToN32(&val);
-
-		if (val.value.UN32)
-			level += alarm->hyst;
+		active = val.value.UN32;
 	}
+
+	level = alarm_level(droot, alarm, active);
 
 	veItemLocalValue(item, &val);
 	veVariantToFloat(&val);

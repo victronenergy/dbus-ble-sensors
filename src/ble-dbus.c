@@ -567,7 +567,11 @@ static void update_alarm(struct VeItem *droot, const struct alarm *alarm)
 void ble_dbus_update_alarms(struct VeItem *droot)
 {
 	const struct dev_info *info = get_dev_info(droot);
+	const struct dev_class *dclass = get_dev_class(info);
 	int i;
+
+	for (i = 0; i < dclass->num_alarms; i++)
+		update_alarm(droot, &dclass->alarms[i]);
 
 	for (i = 0; i < info->num_alarms; i++)
 		update_alarm(droot, &info->alarms[i]);

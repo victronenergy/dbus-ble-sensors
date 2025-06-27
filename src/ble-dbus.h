@@ -55,6 +55,8 @@ struct dev_class {
 	const char	*role;
 	int		num_settings;
 	const struct dev_setting *settings;
+	int		num_alarms;
+	const struct alarm *alarms;
 	int		pdata_size;
 	void		(*init)(struct VeItem *root, const void *data);
 	void		(*update)(struct VeItem *root, const void *data);

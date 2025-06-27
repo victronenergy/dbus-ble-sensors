@@ -582,6 +582,7 @@ int ble_dbus_update(struct VeItem *droot)
 	if (dclass->update)
 		dclass->update(droot, data);
 
+	ble_dbus_update_alarms(droot);
 	ble_dbus_connect(droot);
 	veItemSendPendingChanges(droot);
 

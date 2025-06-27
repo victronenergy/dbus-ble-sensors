@@ -187,7 +187,6 @@ int solarsense_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
 		return 0;
 
 	ble_dbus_set_regs(root, buf, len);
-	ble_dbus_update_alarms(root);
 	ble_dbus_update(root);
 
 	return 0;

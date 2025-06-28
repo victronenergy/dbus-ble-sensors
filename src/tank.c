@@ -93,6 +93,51 @@ static const struct dev_setting tank_topdown_settings[] = {
 	},
 };
 
+static struct VeSettingProperties high_active_props = {
+	.type			= VE_SN32,
+	.def.value.SN32		= 90,
+	.min.value.SN32		= 0,
+	.max.value.SN32		= 100,
+};
+
+static struct VeSettingProperties high_restore_props = {
+	.type			= VE_SN32,
+	.def.value.SN32		= 80,
+	.min.value.SN32		= 0,
+	.max.value.SN32		= 100,
+};
+
+static struct VeSettingProperties low_active_props = {
+	.type			= VE_SN32,
+	.def.value.SN32		= 10,
+	.min.value.SN32		= 0,
+	.max.value.SN32		= 100,
+};
+
+static struct VeSettingProperties low_restore_props = {
+	.type			= VE_SN32,
+	.def.value.SN32		= 15,
+	.min.value.SN32		= 0,
+	.max.value.SN32		= 100,
+};
+
+static const struct alarm tank_alarms[] = {
+	{
+		.name	= "High",
+		.item	= "Level",
+		.flags	= ALARM_FLAG_HIGH | ALARM_FLAG_CONFIG,
+		.active	= &high_active_props,
+		.restore = &high_restore_props,
+	},
+	{
+		.name	= "Low",
+		.item	= "Level",
+		.flags	= ALARM_FLAG_CONFIG,
+		.active	= &low_active_props,
+		.restore = &low_restore_props,
+	},
+};
+
 static void tank_init(struct VeItem *root, const void *data)
 {
 	const struct tank_info *ti = data;
@@ -248,6 +293,8 @@ const struct dev_class tank_class = {
 	.role		= "tank",
 	.num_settings	= array_size(tank_settings),
 	.settings	= tank_settings,
+	.num_alarms	= array_size(tank_alarms),
+	.alarms		= tank_alarms,
 	.init		= tank_init,
 	.update		= tank_update,
 	.pdata_size	= sizeof(struct tank_data),

@@ -392,11 +392,13 @@ struct VeItem *ble_dbus_create(const char *dev, const struct dev_info *info,
 				  veVariantFmt, &veUnitNone, &empty_string);
 
 	ble_dbus_add_settings(droot, dclass->settings, dclass->num_settings);
+	ble_dbus_add_alarms(droot, dclass->alarms, dclass->num_alarms);
 
 	if (dclass->init)
 		dclass->init(droot, data);
 
 	ble_dbus_add_settings(droot, info->settings, info->num_settings);
+	ble_dbus_add_alarms(droot, info->alarms, info->num_alarms);
 
 	if (info->init)
 		info->init(droot, data);
@@ -510,10 +512,65 @@ static int alarm_name(const struct alarm *alarm, char *buf, size_t size)
 	return snprintf(buf, size, "Alarms/%s", alarm->name);
 }
 
+static void add_alarm_config(struct VeItem *droot, const struct alarm *alarm)
+{
+	struct VeItem *settings = get_settings();
+	char path[64];
+	char buf[64];
+
+	settings_path(droot, path, sizeof(path));
+
+	snprintf(buf, sizeof(buf), "Alarms/%s/Enable", alarm->name);
+	veItemCreateSettingsProxy(settings, path, droot, buf, veVariantFmt,
+				  &veUnitNone, &bool_val);
+
+	snprintf(buf, sizeof(buf), "Alarms/%s/Active", alarm->name);
+	veItemCreateSettingsProxy(settings, path, droot, buf, veVariantFmt,
+				  &veUnitNone, alarm->active);
+
+	snprintf(buf, sizeof(buf), "Alarms/%s/Restore", alarm->name);
+	veItemCreateSettingsProxy(settings, path, droot, buf, veVariantFmt,
+				  &veUnitNone, alarm->restore);
+}
+
+int ble_dbus_add_alarms(struct VeItem *droot, const struct alarm *alarms,
+			int num_alarms)
+{
+	int i;
+
+	for (i = 0; i < num_alarms; i++) {
+		const struct alarm *alarm = &alarms[i];
+
+		if (alarms->flags & ALARM_FLAG_CONFIG)
+			add_alarm_config(droot, alarm);
+	}
+
+	return 0;
+}
+
+static int alarm_enabled(struct VeItem *droot, const struct alarm *alarm)
+{
+	char buf[64];
+
+	if (alarm->flags & ALARM_FLAG_CONFIG) {
+		snprintf(buf, sizeof(buf), "Alarms/%s/Enable", alarm->name);
+		return veItemValueInt(droot, buf);
+	}
+
+	return 1;
+}
+
 static float alarm_level(struct VeItem *droot, const struct alarm *alarm,
 			 int active)
 {
+	char buf[64];
 	float level;
+
+	if (alarm->flags & ALARM_FLAG_CONFIG) {
+		snprintf(buf, sizeof(buf), "Alarms/%s/%s", alarm->name,
+			 active ? "Restore" : "Active");
+		return veItemValueFloat(droot, buf);
+	}
 
 	if (alarm->get_level)
 		level = alarm->get_level(droot, alarm);
@@ -534,6 +591,9 @@ static void update_alarm(struct VeItem *droot, const struct alarm *alarm)
 	float level;
 	int active = 0;
 	char buf[64];
+
+	if (!alarm_enabled(droot, alarm))
+		return;
 
 	item = veItemByUid(droot, alarm->item);
 	if (!item || !veItemIsValid(item))

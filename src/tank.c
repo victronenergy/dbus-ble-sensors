@@ -209,6 +209,8 @@ static void tank_update(struct VeItem *root, const void *data)
 	item = veItemByUid(root, "Remaining");
 	veItemOwnerSet(item, veVariantFloat(&v, remain));
 
+	ble_dbus_set_int(root, "Status", STATUS_OK);
+
 	return;
 
 out_inval:

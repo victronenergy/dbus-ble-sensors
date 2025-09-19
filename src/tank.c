@@ -235,7 +235,7 @@ static void tank_shape_changed(struct VeItem *root, struct VeItem *setting,
 	int i;
 
 	if (!veVariantIsValid(veItemLocalValue(setting, &shape))) {
-		fprintf(stderr, "invalid shape value");
+		fprintf(stderr, "invalid shape value\n");
 		goto reset;
 	}
 
@@ -252,18 +252,18 @@ static void tank_shape_changed(struct VeItem *root, struct VeItem *setting,
 		unsigned int s, l;
 
 		if (sscanf(map, "%u:%u", &s, &l) < 2) {
-			fprintf(stderr, "malformed shape spec");
+			fprintf(stderr, "malformed shape spec\n");
 			goto reset;
 		}
 
 		if (s < 1 || s > 99 || l < 1 || l > 99) {
-			fprintf(stderr, "shape level out of range 1-99");
+			fprintf(stderr, "shape level out of range 1-99\n");
 			goto reset;
 		}
 
 		if (s <= td->shape_map[i - 1][0] ||
 		    l <= td->shape_map[i - 1][1]) {
-			fprintf(stderr, "shape level non-increasing");
+			fprintf(stderr, "shape level non-increasing\n");
 			goto reset;
 		}
 

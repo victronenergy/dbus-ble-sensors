@@ -54,7 +54,7 @@ static void connect_dbus(void)
 	}
 
 	if (tries < 0) {
-		fprintf(stderr, "error connecting to settings service");
+		fprintf(stderr, "error connecting to settings service\n");
 		pltExit(1);
 	}
 

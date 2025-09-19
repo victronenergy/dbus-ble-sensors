@@ -68,7 +68,7 @@ static int ble_scan_setup(struct hci_device *dev, int addr_type)
 
 static int ble_scan_open_dev(int id, struct hci_device *dev)
 {
-	struct hci_dev_info info;
+	struct hci_dev_info info = { .dev_id = id };
 	struct hci_filter filter;
 	char addr[18];
 	socklen_t len;
@@ -83,8 +83,6 @@ static int ble_scan_open_dev(int id, struct hci_device *dev)
 		perror("hci_open_dev");
 		return -1;
 	}
-
-	info.dev_id = id;
 
 	err = ioctl(hci_sock, HCIGETDEVINFO, &info);
 	if (err) {
@@ -160,7 +158,7 @@ int ble_scan_open(void)
 		return -1;
 	}
 
-	dl = malloc(sizeof(*dl) + HCI_MAX_DEV * sizeof(*dl->dev_req));
+	dl = calloc(1, sizeof(*dl) + HCI_MAX_DEV * sizeof(*dl->dev_req));
 	if (!dl)
 		goto out;
 

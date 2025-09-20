@@ -298,6 +298,9 @@ static void on_setting_changed(struct VeItem *item)
 	const struct dev_setting *ds = d->setting;
 	const void *data = get_dev_data(d->root);
 
+	if (!veItemIsValid(item))
+		return;
+
 	ds->onchange(d->root, item, data);
 }
 

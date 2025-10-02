@@ -7,6 +7,7 @@
 #include "ble-dbus.h"
 #include "ruuvi.h"
 #include "temperature.h"
+#include "angle.h"
 
 static const struct reg_info ruuvi_rawv2[] = {
 	{
@@ -128,6 +129,15 @@ static const struct alarm ruuvi_alarms[] = {
 	},
 };
 
+static int ruuvi_init(struct VeItem *root, const void *data)
+{
+	/* Add angle settings and initialize */
+	angle_add_settings(root);
+	angle_init(root);
+
+	return 0;
+}
+
 static const struct dev_info ruuvi_tag = {
 	.dev_class	= &temperature_class,
 	.product_id	= VE_PROD_ID_RUUVI_TAG,
@@ -137,6 +147,7 @@ static const struct dev_info ruuvi_tag = {
 	.regs		= ruuvi_rawv2,
 	.num_alarms	= array_size(ruuvi_alarms),
 	.alarms		= ruuvi_alarms,
+	.init		= ruuvi_init,
 };
 
 int ruuvi_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
@@ -166,6 +177,10 @@ int ruuvi_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
 		return 0;
 
 	ble_dbus_set_regs(root, buf, len);
+
+	/* Update angle calculations */
+	angle_calculate(root);
+
 	ble_dbus_update(root);
 
 	return 0;

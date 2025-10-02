@@ -13,6 +13,7 @@
 
 #include "ble-dbus.h"
 #include "ble-scan.h"
+#include "gobius.h"
 #include "mopeka.h"
 #include "ruuvi.h"
 #include "safiery.h"
@@ -28,6 +29,7 @@ struct mfg_data_handler {
 };
 
 static const struct mfg_data_handler mfg_data_handlers[] = {
+	{ MFG_ID_GOBIUS,	gobius_handle_mfg },
 	{ MFG_ID_RUUVI,		ruuvi_handle_mfg },
 	{ MFG_ID_NORDIC,	mopeka_handle_mfg },
 	{ MFG_ID_SAFIERY,	safiery_handle_mfg },

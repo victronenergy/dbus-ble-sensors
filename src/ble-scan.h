@@ -5,6 +5,7 @@
 #define MFG_ID_RUUVI	0x0499
 #define MFG_ID_SAFIERY	0x0067
 #define MFG_ID_SOLARSENSE	0x02E1
+#define MFG_ID_SEELEVEL	0x0131
 
 int ble_scan_open(void);
 void ble_scan_continuous(int cont);

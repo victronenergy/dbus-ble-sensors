@@ -20,7 +20,7 @@
  *
  * Sensor Numbers:
  *   0  = Fresh Water
- *   1  = Waste Water (Black Water)
+ *   1  = Black Water
  *   2  = Gray Water
  *   3  = LPG
  *   4  = LPG 2

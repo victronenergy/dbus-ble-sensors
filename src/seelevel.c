@@ -20,7 +20,7 @@
  *
  * Sensor Numbers:
  *   0  = Fresh Water
- *   1  = Black Water
+ *   1  = Waste Water (Black Water)
  *   2  = Gray Water
  *   3  = LPG
  *   4  = LPG 2
@@ -93,7 +93,7 @@ static const struct seelevel_sensor_info seelevel_sensors[] = {
 	},
 	{
 		.sensor_type	= SENSOR_BLACK,
-		.name_prefix	= "Black Water",
+		.name_prefix	= "Waste Water",
 		.dev_class	= &tank_class,
 		.product_id	= VE_PROD_ID_TANK_SENSOR,
 		.fluid_type	= FLUID_TYPE_BLACK_WATER,

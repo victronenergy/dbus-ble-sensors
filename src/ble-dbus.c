@@ -25,6 +25,10 @@ const VeVariantUnitFmt veUnitG2Dec = { 2, "g" };
 const VeVariantUnitFmt veUnitdBm = { 0, "dBm" };
 const VeVariantUnitFmt veUnitcm = { 1, "cm" };
 const VeVariantUnitFmt veUnitm3 = { 3, "m3" };
+const VeVariantUnitFmt veUnitPPM = { 0, "ppm" };
+const VeVariantUnitFmt veUnitUgM3 = { 1, "ug/m3" };
+const VeVariantUnitFmt veUnitLux = { 2, "lux" };
+const VeVariantUnitFmt veUnitIndex = { 0, "" };
 
 static struct VeSettingProperties empty_string = {
 	.type = VE_HEAP_STR,

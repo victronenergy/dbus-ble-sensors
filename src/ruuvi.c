@@ -139,27 +139,179 @@ static const struct dev_info ruuvi_tag = {
 	.alarms		= ruuvi_alarms,
 };
 
+static int ruuvi_xlate_9bit(struct VeItem *root, VeVariant *val, uint64_t rv,
+			    int flag_bit)
+{
+	uint32_t flags = veItemValueInt(root, "Flags");
+	uint32_t value;
+
+	if (flags > 255)
+		return -1;
+
+	value = (rv << 1) | ((flags >> flag_bit) & 1);
+
+	if (value == 0x1ff)
+		return -1;
+
+	veVariantUn32(val, value);
+
+	return 0;
+}
+
+static int ruuvi_xlate_voc(struct VeItem *root, VeVariant *val, uint64_t rv)
+{
+	return ruuvi_xlate_9bit(root, val, rv, 6);
+}
+
+static int ruuvi_xlate_nox(struct VeItem *root, VeVariant *val, uint64_t rv)
+{
+	return ruuvi_xlate_9bit(root, val, rv, 7);
+}
+
+static int ruuvi_xlate_lum(struct VeItem *root, VeVariant *val, uint64_t rv)
+{
+	float scale = 16 / M_LOG2E / 254;
+	float lux = expf((uint8_t)rv * scale) - 1;
+
+	veVariantFloat(val, lux);
+
+	return 0;
+}
+
+/* Format 6 (Bluetooth 4 compatible) */
+static const struct reg_info ruuvi_format6[] = {
+	{
+		.type	= VE_SN16,
+		.offset	= 1,
+		.scale	= 200,
+		.inval	= 0x8000,
+		.flags	= REG_FLAG_BIG_ENDIAN | REG_FLAG_INVALID,
+		.name	= "Temperature",
+		.format	= &veUnitCelsius1Dec,
+	},
+	{
+		.type	= VE_UN16,
+		.offset	= 3,
+		.scale	= 400,
+		.inval	= 0xffff,
+		.flags	= REG_FLAG_BIG_ENDIAN | REG_FLAG_INVALID,
+		.name	= "Humidity",
+		.format	= &veUnitPercentage,
+	},
+	{
+		.type	= VE_UN16,
+		.offset	= 5,
+		.scale	= 100,
+		.bias	= 500,
+		.inval	= 0xffff,
+		.flags	= REG_FLAG_BIG_ENDIAN | REG_FLAG_INVALID,
+		.name	= "Pressure",
+		.format	= &veUnitHectoPascal,
+	},
+	{
+		.type	= VE_UN16,
+		.offset	= 7,
+		.scale	= 10,
+		.inval	= 0xffff,
+		.flags	= REG_FLAG_BIG_ENDIAN | REG_FLAG_INVALID,
+		.name	= "PM25",
+		.format	= &veUnitUgM3,
+	},
+	{
+		.type	= VE_UN16,
+		.offset	= 9,
+		.inval	= 0xffff,
+		.flags	= REG_FLAG_BIG_ENDIAN | REG_FLAG_INVALID,
+		.name	= "CO2",
+		.format	= &veUnitPPM,
+	},
+	{
+		.type	= VE_UN8,
+		.offset	= 16,
+		.name	= "Flags",
+		.format	= &veUnitNone,
+	},
+	{
+		.type	= VE_UN8,
+		.offset	= 11,
+		.xlate	= ruuvi_xlate_voc,
+		.name	= "VOC",
+		.format	= &veUnitIndex,
+	},
+	{
+		.type	= VE_UN8,
+		.offset	= 12,
+		.xlate	= ruuvi_xlate_nox,
+		.name	= "NOX",
+		.format	= &veUnitIndex,
+	},
+	{
+		.type	= VE_UN8,
+		.offset	= 13,
+		.inval	= 0xff,
+		.flags	= REG_FLAG_INVALID,
+		.xlate	= ruuvi_xlate_lum,
+		.name	= "Luminosity",
+		.format	= &veUnitLux,
+	},
+	{
+		.type	= VE_UN8,
+		.offset	= 15,
+		.name	= "SeqNo",
+		.format	= &veUnitNone,
+	},
+};
+
+static const struct dev_info ruuvi_air = {
+	.dev_class	= &temperature_class,
+	.product_id	= VE_PROD_ID_RUUVI_AIR,
+	.dev_instance	= 20,
+	.dev_prefix	= "ruuvi_",
+	.num_regs	= array_size(ruuvi_format6),
+	.regs		= ruuvi_format6,
+};
+
 int ruuvi_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
 {
 	const uint8_t *mac = addr->b;
+	const struct dev_info *info;
 	struct VeItem *root;
 	char name[16];
 	char dev[16];
+	char *label;
 
-	if (len != 24)
+	if (len < 1)
 		return -1;
 
-	if (buf[0] != 5)
+	switch (buf[0]) {
+	case 5:			/* Format 5, aka RAWv2 */
+		if (len != 24)
+			return -1;
+
+		info = &ruuvi_tag;
+		label = "Ruuvi";
+		break;
+
+	case 6:			/* Format 6 */
+		if (len != 20)
+			return -1;
+
+		info = &ruuvi_air;
+		label = "Ruuvi Air";
+		break;
+
+	default:
 		return -1;
+	}
 
 	snprintf(dev, sizeof(dev), "%02x%02x%02x%02x%02x%02x",
 		 mac[5], mac[4], mac[3], mac[2], mac[1], mac[0]);
 
-	root = ble_dbus_create(dev, &ruuvi_tag, NULL);
+	root = ble_dbus_create(dev, info, NULL);
 	if (!root)
 		return -1;
 
-	snprintf(name, sizeof(name), "Ruuvi %02X%02X", mac[1], mac[0]);
+	snprintf(name, sizeof(name), "%s %02X%02X", label, mac[1], mac[0]);
 	ble_dbus_set_name(root, name);
 
 	if (!ble_dbus_is_enabled(root))

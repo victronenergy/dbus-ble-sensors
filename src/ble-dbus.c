@@ -175,8 +175,12 @@ int ble_dbus_set_item(struct VeItem *root, const char *path, VeVariant *val,
 		return -1;
 	}
 
-	veItemSetFmt(item, veVariantFmt, format);
-	veItemOwnerSet(item, val);
+	if (veVariantIsValid(val)) {
+		veItemSetFmt(item, veVariantFmt, format);
+		veItemOwnerSet(item, val);
+	} else {
+		veItemInvalidate(item);
+	}
 
 	return 0;
 }
@@ -203,7 +207,7 @@ static int set_reg(struct VeItem *root, const struct reg_info *reg,
 
 	err = load_reg(reg, &val, buf, len, root);
 	if (err)
-		return err;
+		veVariantInvalidType(&val, reg->type);
 
 	return ble_dbus_set_item(root, reg->name, &val, reg->format);
 }

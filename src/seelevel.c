@@ -93,14 +93,14 @@ static const struct seelevel_sensor_info seelevel_sensors[] = {
 	},
 	{
 		.sensor_type	= SENSOR_BLACK,
-		.name_prefix	= "Waste Water",
+		.name_prefix	= "Toilet Water",
 		.dev_class	= &tank_class,
 		.product_id	= VE_PROD_ID_TANK_SENSOR,
 		.fluid_type	= FLUID_TYPE_BLACK_WATER,
 	},
 	{
 		.sensor_type	= SENSOR_GRAY,
-		.name_prefix	= "Gray Water",
+		.name_prefix	= "Wash Water",
 		.dev_class	= &tank_class,
 		.product_id	= VE_PROD_ID_TANK_SENSOR,
 		.fluid_type	= FLUID_TYPE_WASTE_WATER,

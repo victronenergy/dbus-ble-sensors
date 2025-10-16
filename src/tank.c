@@ -171,6 +171,10 @@ static void tank_update(struct VeItem *root, const void *data)
 	VeVariant v;
 	int i;
 
+	item = veItemByUid(root, "RawValue");
+	if (!item || !veItemIsValid(item))
+		goto out_inval;
+
 	capacity = veItemValueFloat(root, "Capacity");
 	height = veItemValueFloat(root, "RawValue");
 	empty = veItemValueFloat(root, "RawValueEmpty");

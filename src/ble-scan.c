@@ -33,6 +33,7 @@ static const struct mfg_data_handler mfg_data_handlers[] = {
 	{ MFG_ID_NORDIC,	mopeka_handle_mfg },
 	{ MFG_ID_SAFIERY,	safiery_handle_mfg },
 	{ MFG_ID_SEELEVEL,	seelevel_handle_mfg },
+	{ MFG_ID_SEELEVEL_BTP7,	seelevel_handle_mfg },
 	{ MFG_ID_SOLARSENSE,	solarsense_handle_mfg },
 };
 

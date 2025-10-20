@@ -1,14 +1,14 @@
 /*
- * SeeLevel (Garnet 709-BT) BLE Sensor Integration
+ * SeeLevel (Garnet 709-BT / 709-BTP7) BLE Sensor Integration
  *
- * The Garnet 709-BT hardware supports Bluetooth Low Energy (BLE), and is
- * configured as a Broadcaster transmitting advertisement packets. It
+ * The Garnet 709-BT and 709-BTP7 hardware supports Bluetooth Low Energy (BLE),
+ * and is configured as a Broadcaster transmitting advertisement packets. It
  * continuously cycles through its connected sensors sending out sensor data.
  * No BLE connection is required to read the data.
  *
  * BLE Packet Format:
  * ------------------
- * Manufacturer ID: 305 (0x0131) - Cypress Semiconductor
+ * Manufacturer ID: 305 (0x0131) for 709-BT, 3264 (0x0CC0) for 709-BTP7
  *
  * Payload (14 bytes):
  *   Bytes 0-2:   Coach ID (24-bit unique hardware ID, little-endian)
@@ -259,17 +259,25 @@ int seelevel_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
 	char name[64];
 	VeVariant val;
 
-	/* Minimum packet size: coach_id(3) + sensor_num(1) + data(3) + volume(3) + total(3) + alarm(1) = 14 */
+	/* Minimum packet size: 14 bytes for both formats */
 	if (len < 14)
 		return -1;
+
+	/* 
+	 * Note: This handler is called for both 709-BT/BTP3 (MFG_ID 0x0131) and
+	 * 709-BTP7 (MFG_ID 0x0CC0). Currently only 709-BT/BTP3 ASCII format is
+	 * implemented. BTP7 uses a binary format with all sensors in one packet
+	 * (bytes 3-11, one byte per sensor). To add BTP7 support, detect format
+	 * by checking if byte 4 is ASCII or binary, then parse accordingly.
+	 */
 
 	/* Extract Coach ID (3 bytes, little-endian) */
 	coach_id = buf[0] | (buf[1] << 8) | (buf[2] << 16);
 
-	/* Extract Sensor Number */
+	/* Extract Sensor Number (709-BT/BTP3 format) */
 	sensor_num = buf[3];
 
-	/* Extract Sensor Data (3 ASCII bytes) */
+	/* Extract Sensor Data (3 ASCII bytes, 709-BT/BTP3 format) */
 	sensor_data = seelevel_parse_ascii_value(&buf[4], data_str);
 
 	/* Extract Sensor Volume (3 ASCII bytes) */

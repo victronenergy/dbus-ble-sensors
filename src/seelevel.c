@@ -59,7 +59,7 @@
 #include "tank.h"
 #include "temperature.h"
 
-/* SeeLevel sensor types from specification */
+/* SeeLevel sensor types from specification (709-BT/BTP3) */
 #define SENSOR_FRESH		0
 #define SENSOR_BLACK		1
 #define SENSOR_GRAY		2
@@ -74,6 +74,28 @@
 #define SENSOR_CHEMICAL		11
 #define SENSOR_CHEMICAL_2	12
 #define SENSOR_BATTERY		13
+
+/* BTP7 sensor positions in packet (bytes 3-11) */
+#define BTP7_FRESH		0
+#define BTP7_GRAY		1
+#define BTP7_BLACK		2
+#define BTP7_FRESH_2		3
+#define BTP7_GRAY_2		4
+#define BTP7_BLACK_2		5
+#define BTP7_GRAY_3		6
+#define BTP7_LPG		7
+#define BTP7_BATTERY		8
+
+/* BTP7 error codes (values > 100 for tank sensors) */
+#define BTP7_ERR_SHORT_CIRCUIT	101
+#define BTP7_ERR_OPEN		102
+#define BTP7_ERR_BITCOUNT	103
+#define BTP7_ERR_NON_STACKED	104
+#define BTP7_ERR_MISSING_BOTTOM	105
+#define BTP7_ERR_MISSING_TOP	106
+#define BTP7_ERR_CHECKSUM	108
+#define BTP7_ERR_DISABLED	110
+#define BTP7_ERR_INIT		111
 
 struct seelevel_sensor_info {
 	uint8_t		sensor_type;
@@ -243,7 +265,32 @@ static const struct dev_info seelevel_battery_sensor = {
 	.role		= "battery",
 };
 
+/* Forward declarations for format-specific handlers */
+static int seelevel_handle_bt_packet(const bdaddr_t *addr, const uint8_t *buf, int len);
+static int seelevel_handle_btp7_packet(const bdaddr_t *addr, const uint8_t *buf, int len);
+
 int seelevel_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
+{
+	/* Minimum packet size: 14 bytes for both formats */
+	if (len < 14)
+		return -1;
+
+	/* 
+	 * Detect format by checking if bytes 4-6 are ASCII digits (BT/BTP3)
+	 * or binary values (BTP7). ASCII digits are 0x30-0x39 ('0'-'9').
+	 * BTP7 uses raw binary 0-100 for levels, 101+ for errors.
+	 */
+	if ((buf[4] >= '0' && buf[4] <= '9') ||
+	    (buf[4] >= 'A' && buf[4] <= 'Z')) {
+		/* ASCII format - 709-BT/BTP3 */
+		return seelevel_handle_bt_packet(addr, buf, len);
+	} else {
+		/* Binary format - 709-BTP7 */
+		return seelevel_handle_btp7_packet(addr, buf, len);
+	}
+}
+
+static int seelevel_handle_bt_packet(const bdaddr_t *addr, const uint8_t *buf, int len)
 {
 	struct VeItem *root;
 	const struct seelevel_sensor_info *sensor_info;
@@ -259,22 +306,10 @@ int seelevel_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
 	char name[64];
 	VeVariant val;
 
-	/* Minimum packet size: 14 bytes for both formats */
-	if (len < 14)
-		return -1;
-
-	/* 
-	 * Note: This handler is called for both 709-BT/BTP3 (MFG_ID 0x0131) and
-	 * 709-BTP7 (MFG_ID 0x0CC0). Currently only 709-BT/BTP3 ASCII format is
-	 * implemented. BTP7 uses a binary format with all sensors in one packet
-	 * (bytes 3-11, one byte per sensor). To add BTP7 support, detect format
-	 * by checking if byte 4 is ASCII or binary, then parse accordingly.
-	 */
-
 	/* Extract Coach ID (3 bytes, little-endian) */
 	coach_id = buf[0] | (buf[1] << 8) | (buf[2] << 16);
 
-	/* Extract Sensor Number (709-BT/BTP3 format) */
+	/* Extract Sensor Number */
 	sensor_num = buf[3];
 
 	/* Extract Sensor Data (3 ASCII bytes, 709-BT/BTP3 format) */
@@ -409,6 +444,111 @@ int seelevel_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
 	ble_dbus_set_int(root, "Status", STATUS_OK);
 
 	ble_dbus_update(root);
+
+	return 0;
+}
+
+static int seelevel_handle_btp7_packet(const bdaddr_t *addr, const uint8_t *buf, int len)
+{
+	/*
+	 * BTP7 format: All sensors in one packet (bytes 3-11)
+	 * Byte 3: Fresh1, 4: Grey1, 5: Black1, 6: Fresh2, 7: Grey2,
+	 * 8: Black2, 9: Grey3, 10: LPG, 11: Battery
+	 * Values 0-100 = level percentage, 101+ = error codes
+	 */
+	const struct seelevel_sensor_info *sensor_info;
+	const struct dev_info *dev_info;
+	struct VeItem *root;
+	char dev[32];
+	char name[64];
+	VeVariant val;
+	int i;
+
+	/* BTP7 sensor mapping: packet byte position -> BT sensor type */
+	static const uint8_t btp7_to_bt_sensor[] = {
+		SENSOR_FRESH,		/* BTP7 byte 3: Fresh1 */
+		SENSOR_GRAY,		/* BTP7 byte 4: Grey1 */
+		SENSOR_BLACK,		/* BTP7 byte 5: Black1 */
+		SENSOR_FRESH,		/* BTP7 byte 6: Fresh2 (reuse FRESH type) */
+		SENSOR_GRAY,		/* BTP7 byte 7: Grey2 (reuse GRAY type) */
+		SENSOR_BLACK,		/* BTP7 byte 8: Black2 (reuse BLACK type) */
+		SENSOR_GRAY,		/* BTP7 byte 9: Grey3 (reuse GRAY type) */
+		SENSOR_LPG,		/* BTP7 byte 10: LPG */
+		SENSOR_BATTERY		/* BTP7 byte 11: Battery */
+	};
+
+	/* Process all 9 sensors */
+	for (i = 0; i < 9; i++) {
+		uint8_t sensor_value = buf[3 + i];
+		uint8_t bt_sensor_type = btp7_to_bt_sensor[i];
+		
+		/* Get sensor type information */
+		sensor_info = seelevel_get_sensor_info(bt_sensor_type);
+		if (!sensor_info)
+			continue;
+
+		/* Check for error codes on tank sensors (not battery) */
+		if (i < 8 && sensor_value > 100) {
+			/* Error code - skip this sensor for now */
+			/* Could optionally create device and show error status */
+			continue;
+		}
+
+		/* Create unique device ID using MAC address + BTP7 sensor index */
+		snprintf(dev, sizeof(dev), "%02x%02x%02x%02x%02x%02x_%02x",
+			 addr->b[5], addr->b[4], addr->b[3],
+			 addr->b[2], addr->b[1], addr->b[0], i);
+
+		/* Select appropriate device info based on sensor type */
+		if (i == BTP7_BATTERY)
+			dev_info = &seelevel_battery_sensor;
+		else
+			dev_info = &seelevel_tank_sensor;
+
+		/* Create or get existing device */
+		root = ble_dbus_create(dev, dev_info, sensor_info);
+		if (!root)
+			continue;
+
+		/* Set device name using MAC address last 3 bytes */
+		snprintf(name, sizeof(name), "SeeLevel %s %02X:%02X:%02X",
+			 sensor_info->name_prefix,
+			 addr->b[2], addr->b[1], addr->b[0]);
+		
+		/* For duplicate sensor types (Fresh2, Grey2, etc), add suffix */
+		if (i == BTP7_FRESH_2 || i == BTP7_GRAY_2 || i == BTP7_BLACK_2 || i == BTP7_GRAY_3) {
+			int suffix = (i == BTP7_FRESH_2) ? 2 :
+				     (i == BTP7_GRAY_2) ? 2 :
+				     (i == BTP7_BLACK_2) ? 2 : 3;
+			snprintf(name, sizeof(name), "SeeLevel %s %d %02X:%02X:%02X",
+				 sensor_info->name_prefix, suffix,
+				 addr->b[2], addr->b[1], addr->b[0]);
+		}
+		
+		ble_dbus_set_name(root, name);
+
+		if (!ble_dbus_is_enabled(root))
+			continue;
+
+		/* Update sensor values based on type */
+		if (i == BTP7_BATTERY) {
+			/* Battery sensor - value is voltage * 10 */
+			float voltage = sensor_value / 10.0f;
+			ble_dbus_set_item(root, "BatteryVoltage",
+					  veVariantFloat(&val, voltage),
+					  &veUnitVolt2Dec);
+		} else {
+			/* Tank sensor - value is percentage 0-100 */
+			ble_dbus_set_item(root, "Level",
+					  veVariantUns8(&val, sensor_value),
+					  &veUnitPercentage);
+		}
+
+		/* Set status to OK */
+		ble_dbus_set_int(root, "Status", STATUS_OK);
+
+		ble_dbus_update(root);
+	}
 
 	return 0;
 }

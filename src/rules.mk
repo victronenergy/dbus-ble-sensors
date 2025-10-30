@@ -9,4 +9,5 @@ SRCS += gobius.c
 SRCS += mopeka.c
 SRCS += ruuvi.c
 SRCS += safiery.c
+SRCS += seelevel.c
 SRCS += solarsense.c

@@ -4,6 +4,7 @@ SRCS += ble-scan.c
 SRCS += ble-socket.c
 SRCS += task.c
 
+SRCS += orientation.c
 SRCS += tank.c
 SRCS += temperature.c
 

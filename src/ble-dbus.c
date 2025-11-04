@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include <velib/platform/plt.h>
 #include <velib/types/types.h>
@@ -12,6 +13,7 @@
 
 #include "ble-dbus.h"
 #include "ble-scan.h"
+#include "orientation.h"
 #include "task.h"
 
 struct device {
@@ -26,8 +28,11 @@ struct device {
 	VeVariant		names[NAME_ORIG_NONE];
 	enum name_source	cname_source;
 	enum name_source	dname_source;
+	uint32_t		flags;
 	char			pdata[];
 };
+
+#define DEV_FLAG_ORIENTATION	(1 << 0)
 
 const VeVariantUnitFmt veUnitHectoPascal = { 0, "hPa" };
 const VeVariantUnitFmt veUnitG2Dec = { 2, "g" };
@@ -553,6 +558,34 @@ static void set_names(struct VeItem *droot, enum name_source changed)
 	}
 }
 
+static int ble_dbus_add_regs(struct VeItem *droot, const struct reg_info *regs,
+			     int num_regs)
+{
+	struct device *d = get_device(droot);
+	int accel = 0;
+	int i;
+
+	for (i = 0; i < num_regs; i++) {
+		const struct reg_info *r = &regs[i];
+
+		if (!strcmp(r->name, "AccelX"))
+			accel |= 1;
+
+		if (!strcmp(r->name, "AccelY"))
+			accel |= 2;
+
+		if (!strcmp(r->name, "AccelZ"))
+			accel |= 4;
+	}
+
+	if (accel == 7) {
+		d->flags |= DEV_FLAG_ORIENTATION;
+		orientation_init(droot);
+	}
+
+	return 0;
+}
+
 static void on_enabled_changed(struct VeItem *ena)
 {
 	struct VeItem *droot = veItemCtx(ena)->ptr;
@@ -622,6 +655,7 @@ static int deferred_create(struct VeItem *droot)
 
 	ble_dbus_add_settings(droot, info->settings, info->num_settings);
 	ble_dbus_add_alarms(droot, info->alarms, info->num_alarms);
+	ble_dbus_add_regs(droot, info->regs, info->num_regs);
 
 	if (info->init)
 		info->init(droot, get_dev_data(droot));
@@ -926,12 +960,16 @@ void ble_dbus_update_alarms(struct VeItem *droot)
 
 int ble_dbus_update(struct VeItem *droot)
 {
+	struct device *d = get_device(droot);
 	const struct dev_info *info = get_dev_info(droot);
 	const struct dev_class *dclass = get_dev_class(info);
 	const void *data = get_dev_data(droot);
 
 	if (dclass->update)
 		dclass->update(droot, data);
+
+	if (d->flags & DEV_FLAG_ORIENTATION)
+		orientation_update(droot);
 
 	ble_dbus_update_alarms(droot);
 	ble_dbus_connect(droot);

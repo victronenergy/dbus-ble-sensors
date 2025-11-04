@@ -5,7 +5,7 @@ SRCS += ble-socket.c
 SRCS += task.c
 
 SRCS += formatters.c
-
+SRCS += orientation.c
 SRCS += tank.c
 SRCS += temperature.c
 

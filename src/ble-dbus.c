@@ -203,6 +203,13 @@ int ble_dbus_set_int(struct VeItem *root, const char *path, int num)
 				 &veUnitNone);
 }
 
+int ble_dbus_set_float(struct VeItem *root, const char *path, float num)
+{
+	VeVariant val;
+	return ble_dbus_set_item(root, path, veVariantFloat(&val, num),
+				 &veUnitNone);
+}
+
 static int set_reg(struct VeItem *root, const struct reg_info *reg,
 		    const uint8_t *buf, int len)
 {

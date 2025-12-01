@@ -181,7 +181,7 @@ int ble_dbus_set_item(struct VeItem *root, const char *path, VeVariant *val,
 
 	if (veVariantIsValid(val)) {
 		veItemSetFmt(item, veVariantFmt, format);
-		veItemOwnerSet(item, val);
+		veItemSet(item, val);
 	} else {
 		veItemInvalidate(item);
 	}

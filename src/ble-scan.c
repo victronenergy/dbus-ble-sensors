@@ -10,6 +10,8 @@
 #include <bluetooth/hci_lib.h>
 
 #include <velib/platform/plt.h>
+#include <velib/types/ve_item.h>
+#include <velib/utils/ve_item_utils.h>
 
 #include "ble-dbus.h"
 #include "ble-scan.h"
@@ -45,6 +47,20 @@ struct hci_device {
 static struct hci_device devices[HCI_MAX_DEV];
 static int num_devices;
 static int cont_scan;
+static int ble_scan_enabled = 1;
+static int current_source = BLE_SOURCE_LOCAL;
+
+static struct VeSettingProperties ble_enabled_props = {
+	.type		= VE_SN32,
+	.def.value.SN32	= 1,
+	.min.value.SN32	= 0,
+	.max.value.SN32	= 1,
+};
+
+int ble_get_current_source(void)
+{
+	return current_source;
+}
 
 static int ble_scan_setup(struct hci_device *dev, int addr_type)
 {
@@ -219,23 +235,17 @@ static int ble_handle_name(const bdaddr_t *addr, const uint8_t *buf, int len)
 	return 0;
 }
 
-static int ble_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
+int ble_handle_mfg(const uint8_t addr[6], uint16_t mfg_id,
+		   const uint8_t *buf, int len, int source)
 {
-	int mfg;
-	int err;
+	const bdaddr_t *bdaddr = (const bdaddr_t *)addr;
 	int i;
 
-	if (len < 2)
-		return -1;
-
-	mfg = bt_get_le16(buf);
-	buf += 2;
-	len -= 2;
+	current_source = source;
 
 	for (i = 0; i < array_size(mfg_data_handlers); i++) {
-		if (mfg == mfg_data_handlers[i].id) {
-			err = mfg_data_handlers[i].handler(addr, buf, len);
-			if (!err)
+		if (mfg_id == mfg_data_handlers[i].id) {
+			if (!mfg_data_handlers[i].handler(bdaddr, buf, len))
 				break;
 		}
 	}
@@ -243,10 +253,27 @@ static int ble_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
 	return 0;
 }
 
+static int ble_parse_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
+{
+	uint16_t mfg_id;
+
+	if (len < 2)
+		return -1;
+
+	mfg_id = bt_get_le16(buf);
+	buf += 2;
+	len -= 2;
+
+	return ble_handle_mfg(addr->b, mfg_id, buf, len, BLE_SOURCE_LOCAL);
+}
+
 static int ble_parse_adv(const le_advertising_info *adv)
 {
 	const uint8_t *buf = adv->data;
 	int len = adv->length;
+
+	if (!ble_scan_enabled)
+		return 0;
 
 	while (len >= 2) {
 		int adlen, adtyp;
@@ -270,7 +297,7 @@ static int ble_parse_adv(const le_advertising_info *adv)
 			break;
 
 		case 0xff:	/* Manufacturer Specific Data */
-			ble_handle_mfg(&adv->bdaddr, buf, adlen);
+			ble_parse_mfg(&adv->bdaddr, buf, adlen);
 			break;
 		}
 
@@ -383,4 +410,30 @@ void ble_scan_tick(void)
 		for (i = 0; i < num_devices; i++)
 			hci_le_set_scan_enable(devices[i].sock, 1, 0, 1000);
 	}
+}
+
+static void on_ble_enabled_changed(struct VeItem *item)
+{
+	VeVariant val;
+
+	veItemLocalValue(item, &val);
+	if (veVariantIsValid(&val)) {
+		ble_scan_enabled = val.value.SN32;
+		fprintf(stderr, "ble-scan: Bluetooth %s\n",
+			ble_scan_enabled ? "enabled" : "disabled");
+	}
+}
+
+int ble_scan_init(void)
+{
+	struct VeItem *settings = get_settings();
+	struct VeItem *ctl = get_control();
+	struct VeItem *item;
+
+	item = veItemCreateSettingsProxy(settings, "Settings/BleSensors",
+		ctl, "Bluetooth/Enabled", veVariantFmt, &veUnitNone,
+		&ble_enabled_props);
+	veItemSetChanged(item, on_ble_enabled_changed);
+
+	return 0;
 }

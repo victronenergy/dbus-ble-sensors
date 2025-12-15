@@ -79,6 +79,7 @@ struct dev_info {
 	const struct alarm *alarms;
 	int		pdata_size;
 	int		(*init)(struct VeItem *root, const void *data);
+	int		(*get_seqno)(const uint8_t *data, int len, uint16_t *seqno);
 };
 
 #define STATUS_OK		0
@@ -93,6 +94,8 @@ extern const VeVariantUnitFmt veUnitPPM;
 extern const VeVariantUnitFmt veUnitUgM3;
 extern const VeVariantUnitFmt veUnitLux;
 extern const VeVariantUnitFmt veUnitIndex;
+
+extern int ble_debug_enabled;
 
 int ble_dbus_init(void);
 int ble_dbus_add_interface(const char *name, const char *addr);
@@ -114,7 +117,11 @@ int ble_dbus_set_item(struct VeItem *root, const char *path, VeVariant *val,
 int ble_dbus_set_str(struct VeItem *root, const char *path, const char *str);
 int ble_dbus_set_int(struct VeItem *root, const char *path, int num);
 void ble_dbus_update_alarms(struct VeItem *droot);
-int ble_dbus_update(struct VeItem *root);
+int ble_dbus_update(struct VeItem *root, int source);
 void ble_dbus_tick(void);
+
+/* Deduplication */
+int ble_dbus_check_dup(struct VeItem *root, const uint8_t *data, int len,
+		       int source);
 
 #endif

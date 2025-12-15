@@ -14,9 +14,17 @@
 #include "ble-scan.h"
 #include "task.h"
 
+struct dedup_state {
+	uint32_t	last_tick;
+	uint16_t	last_seqno;
+	uint8_t		last_source;
+	uint8_t		has_seqno;
+};
+
 struct device {
 	const struct dev_info	*info;
 	const void		*data;
+	struct dedup_state	dedup;
 	char			pdata[];
 };
 
@@ -30,6 +38,11 @@ const VeVariantUnitFmt veUnitUgM3 = { 1, "ug/m3" };
 const VeVariantUnitFmt veUnitLux = { 2, "lux" };
 const VeVariantUnitFmt veUnitIndex = { 0, "" };
 
+int ble_debug_enabled = 0;
+static int dedup_window_ticks = 2 * TICKS_PER_SEC;
+
+static const char *source_name(int source);
+
 static struct VeSettingProperties empty_string = {
 	.type = VE_HEAP_STR,
 	.def.value.Ptr = "",
@@ -40,6 +53,13 @@ static struct VeSettingProperties bool_val = {
 	.def.value.SN32 = 0,
 	.min.value.SN32 = 0,
 	.max.value.SN32 = 1,
+};
+
+static struct VeSettingProperties dedup_window_props = {
+	.type = VE_SN32,
+	.def.value.SN32 = 2000,
+	.min.value.SN32 = 0,
+	.max.value.SN32 = 10000,
 };
 
 static void free_item_data(struct VeItem *item)
@@ -67,6 +87,12 @@ static inline const void *get_dev_data(struct VeItem *root)
 {
 	struct device *d = veItemCtx(root)->ptr;
 	return d->data;
+}
+
+static inline struct dedup_state *get_dedup_state(struct VeItem *root)
+{
+	struct device *d = veItemCtx(root)->ptr;
+	return &d->dedup;
 }
 
 static const struct dev_class null_class;
@@ -228,11 +254,38 @@ static void on_contscan_changed(struct VeItem *cont)
 		ble_scan_continuous(val.value.SN32);
 }
 
+static void on_dedup_window_changed(struct VeItem *item)
+{
+	VeVariant val;
+
+	veItemLocalValue(item, &val);
+	if (veVariantIsValid(&val)) {
+		dedup_window_ticks = (val.value.SN32 * TICKS_PER_SEC) / 1000;
+		if (ble_debug_enabled)
+			fprintf(stderr, "ble-dbus: dedup window = %d ticks\n",
+				dedup_window_ticks);
+	}
+}
+
+static void on_debug_changed(struct VeItem *item)
+{
+	VeVariant val;
+
+	veItemLocalValue(item, &val);
+	if (veVariantIsValid(&val)) {
+		ble_debug_enabled = val.value.SN32;
+		fprintf(stderr, "ble-dbus: debug output %s\n",
+			ble_debug_enabled ? "enabled" : "disabled");
+	}
+}
+
 int ble_dbus_init(void)
 {
 	struct VeItem *settings = get_settings();
 	struct VeItem *ctl = get_control();
 	struct VeItem *cont;
+	struct VeItem *dedup;
+	struct VeItem *debug;
 
 	devices = veItemAlloc(NULL, "");
 	if (!devices)
@@ -241,6 +294,15 @@ int ble_dbus_init(void)
 	cont = veItemCreateSettingsProxy(settings, "Settings/BleSensors",
 		ctl, "ContinuousScan", veVariantFmt, &veUnitNone, &bool_val);
 	veItemSetChanged(cont, on_contscan_changed);
+
+	dedup = veItemCreateSettingsProxy(settings, "Settings/BleSensors",
+		ctl, "DeduplicationWindow", veVariantFmt, &veUnitNone,
+		&dedup_window_props);
+	veItemSetChanged(dedup, on_dedup_window_changed);
+
+	debug = veItemCreateSettingsProxy(settings, "Settings/BleSensors",
+		ctl, "DebugEnable", veVariantFmt, &veUnitNone, &bool_val);
+	veItemSetChanged(debug, on_debug_changed);
 
 	return 0;
 }
@@ -266,12 +328,22 @@ int ble_dbus_is_enabled(struct VeItem *droot)
 	const struct dev_info *info = get_dev_info(droot);
 	const char *dev = veItemId(droot);
 	struct VeItem *ctl = get_control();
+	struct VeItem *ena;
+	VeVariant val;
 	char name[64];
 
 	snprintf(name, sizeof(name), "Devices/%s%s/Enabled",
 		 info->dev_prefix, dev);
 
-	return veItemValueInt(ctl, name) == 1;
+	ena = veItemByUid(ctl, name);
+	if (!ena)
+		return 1;
+
+	veItemLocalValue(ena, &val);
+	if (!veVariantIsValid(&val))
+		return 1;
+
+	return val.value.SN32 == 1;
 }
 
 void *ble_dbus_get_pdata(struct VeItem *root)
@@ -368,6 +440,10 @@ static void init_dev(struct VeItem *root, const struct dev_info *info,
 	d = alloc_item_data(root, sizeof(*d) + pdata_size);
 	d->info = info;
 	d->data = data;
+	d->dedup.last_tick = 0;
+	d->dedup.last_seqno = 0;
+	d->dedup.last_source = 0;
+	d->dedup.has_seqno = 0;
 }
 
 struct VeItem *ble_dbus_create(const char *dev, const struct dev_info *info,
@@ -420,6 +496,83 @@ out:
 	veItemLocalSet(droot, veVariantUn32(&val, tick));
 
 	return droot;
+}
+
+static const char *get_sensor_type(const struct dev_info *info)
+{
+	return info->dev_prefix ? info->dev_prefix : "unknown";
+}
+
+static int extract_seqno(const struct dev_info *info, const uint8_t *data,
+			 int len, uint16_t *seqno)
+{
+	if (info->get_seqno)
+		return info->get_seqno(data, len, seqno);
+
+	return 0;
+}
+
+int ble_dbus_check_dup(struct VeItem *root, const uint8_t *data, int len,
+		       int source)
+{
+	const struct dev_info *info = get_dev_info(root);
+	struct dedup_state *dedup = get_dedup_state(root);
+	const char *sensor_type = get_sensor_type(info);
+	uint16_t seqno;
+	int has_seqno;
+
+	if (dedup_window_ticks == 0)
+		return 0;
+
+	has_seqno = extract_seqno(info, data, len, &seqno);
+
+	if (has_seqno && dedup->has_seqno) {
+		if (seqno == dedup->last_seqno) {
+			if (ble_debug_enabled) {
+				fprintf(stderr, "ble-dbus %s%s: dup seqno=%u src=%s (was %s)\n",
+					sensor_type, veItemId(root), seqno,
+					source_name(source), source_name(dedup->last_source));
+			}
+			if (source != dedup->last_source) {
+				dedup->last_source = source;
+				ble_dbus_set_str(root, "Mgmt/Connection", source_name(source));
+			}
+			return 1;
+		}
+	} else {
+		uint32_t age = tick - dedup->last_tick;
+		if (age < dedup_window_ticks && dedup->last_tick != 0) {
+			if (ble_debug_enabled) {
+				fprintf(stderr, "ble-dbus %s%s: dup time=%u/%u src=%s (was %s)\n",
+					sensor_type, veItemId(root), age, dedup_window_ticks,
+					source_name(source), source_name(dedup->last_source));
+			}
+			if (source != dedup->last_source) {
+				dedup->last_source = source;
+				ble_dbus_set_str(root, "Mgmt/Connection", source_name(source));
+			}
+			return 1;
+		}
+	}
+
+	dedup->last_tick = tick;
+	dedup->last_source = source;
+	if (has_seqno) {
+		dedup->last_seqno = seqno;
+		dedup->has_seqno = 1;
+	}
+
+	if (ble_debug_enabled) {
+		if (has_seqno) {
+			fprintf(stderr, "ble-dbus %s%s: accepted packet seqno=%u src=%s\n",
+				sensor_type, veItemId(root), seqno, source_name(source));
+		} else {
+			fprintf(stderr, "ble-dbus %s%s: accepted packet src=%s\n",
+				sensor_type, veItemId(root), source_name(source));
+		}
+	}
+
+	return 0;
 }
 
 static int ble_dbus_connect(struct VeItem *droot)
@@ -648,7 +801,19 @@ void ble_dbus_update_alarms(struct VeItem *droot)
 		update_alarm(droot, &info->alarms[i]);
 }
 
-int ble_dbus_update(struct VeItem *droot)
+static const char *source_name(int source)
+{
+	switch (source) {
+	case BLE_SOURCE_LOCAL:
+		return "Bluetooth LE";
+	case BLE_SOURCE_SOCKET:
+		return "Bluetooth LE (UDP)";
+	default:
+		return "Unknown";
+	}
+}
+
+int ble_dbus_update(struct VeItem *droot, int source)
 {
 	const struct dev_info *info = get_dev_info(droot);
 	const struct dev_class *dclass = get_dev_class(info);
@@ -659,6 +824,9 @@ int ble_dbus_update(struct VeItem *droot)
 
 	ble_dbus_update_alarms(droot);
 	ble_dbus_connect(droot);
+
+	ble_dbus_set_str(droot, "Mgmt/Connection", source_name(source));
+
 	veItemSendPendingChanges(droot);
 
 	return 0;

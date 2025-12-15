@@ -16,6 +16,7 @@
 
 #include "ble-dbus.h"
 #include "ble-scan.h"
+#include "ble-socket.h"
 #include "task.h"
 
 static struct VeItem *settings;
@@ -81,6 +82,8 @@ void taskInit(void)
 
 	connect_dbus();
 	ble_dbus_init();
+	ble_scan_init();
+	ble_socket_init();
 
 	sa.sa_handler = sighand;
 	sigaction(SIGINT, &sa, NULL);
@@ -93,6 +96,7 @@ void taskInit(void)
 	}
 
 	atexit(ble_scan_close);
+	atexit(ble_socket_close);
 }
 
 void taskUpdate(void)

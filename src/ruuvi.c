@@ -5,6 +5,7 @@
 #include <velib/vecan/products.h>
 
 #include "ble-dbus.h"
+#include "ble-scan.h"
 #include "ruuvi.h"
 #include "temperature.h"
 
@@ -128,6 +129,16 @@ static const struct alarm ruuvi_alarms[] = {
 	},
 };
 
+static int ruuvi_tag_get_seqno(const uint8_t *data, int len, uint16_t *seqno)
+{
+	/* Format 5: SeqNo at offset 16, 2 bytes big-endian */
+	if (len >= 18 && data[0] == 5) {
+		*seqno = (data[16] << 8) | data[17];
+		return 1;
+	}
+	return 0;
+}
+
 static const struct dev_info ruuvi_tag = {
 	.dev_class	= &temperature_class,
 	.product_id	= VE_PROD_ID_RUUVI_TAG,
@@ -137,6 +148,7 @@ static const struct dev_info ruuvi_tag = {
 	.regs		= ruuvi_rawv2,
 	.num_alarms	= array_size(ruuvi_alarms),
 	.alarms		= ruuvi_alarms,
+	.get_seqno	= ruuvi_tag_get_seqno,
 };
 
 static int ruuvi_xlate_9bit(struct VeItem *root, VeVariant *val, uint64_t rv,
@@ -262,6 +274,16 @@ static const struct reg_info ruuvi_format6[] = {
 	},
 };
 
+static int ruuvi_air_get_seqno(const uint8_t *data, int len, uint16_t *seqno)
+{
+	/* Format 6: SeqNo at offset 15, 1 byte */
+	if (len >= 16 && data[0] == 6) {
+		*seqno = data[15];
+		return 1;
+	}
+	return 0;
+}
+
 static const struct dev_info ruuvi_air = {
 	.dev_class	= &temperature_class,
 	.product_id	= VE_PROD_ID_RUUVI_AIR,
@@ -269,6 +291,7 @@ static const struct dev_info ruuvi_air = {
 	.dev_prefix	= "ruuvi_",
 	.num_regs	= array_size(ruuvi_format6),
 	.regs		= ruuvi_format6,
+	.get_seqno	= ruuvi_air_get_seqno,
 };
 
 int ruuvi_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
@@ -276,6 +299,7 @@ int ruuvi_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
 	const uint8_t *mac = addr->b;
 	const struct dev_info *info;
 	struct VeItem *root;
+	int source;
 	char name[16];
 	char dev[16];
 	char *label;
@@ -317,8 +341,12 @@ int ruuvi_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
 	if (!ble_dbus_is_enabled(root))
 		return 0;
 
+	source = ble_get_current_source();
+	if (ble_dbus_check_dup(root, buf, len, source))
+		return 0;
+
 	ble_dbus_set_regs(root, buf, len);
-	ble_dbus_update(root);
+	ble_dbus_update(root, source);
 
 	return 0;
 }

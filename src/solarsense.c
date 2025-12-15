@@ -8,6 +8,7 @@
 #include <velib/vecan/products.h>
 
 #include "ble-dbus.h"
+#include "ble-scan.h"
 #include "solarsense.h"
 
 static int solarsense_xlate_txpower(struct VeItem *root, VeVariant *val,
@@ -148,6 +149,19 @@ static const struct alarm solarsense_alarms[] = {
 	},
 };
 
+static int solarsense_get_seqno(const uint8_t *data, int len, uint16_t *seqno)
+{
+	/* Nonce is at byte 5 in the manufacturer data (after mfg ID)
+	 * Structure: [0]=0x10, [1-2]=ProductID, [3]=Reserved,
+	 *            [4]=0xff, [5]=Nonce (8-bit counter)
+	 */
+	if (len >= 8 && data[0] == 0x10 && data[4] == 0xff) {
+		*seqno = data[5];
+		return 1;
+	}
+	return 0;
+}
+
 static const struct dev_info solarsense_sensor = {
 	.product_id	= VE_PROD_ID_SOLAR_SENSE_750,
 	.dev_instance	= 20,
@@ -157,11 +171,13 @@ static const struct dev_info solarsense_sensor = {
 	.regs		= solarsense_adv,
 	.num_alarms	= array_size(solarsense_alarms),
 	.alarms		= solarsense_alarms,
+	.get_seqno	= solarsense_get_seqno,
 };
 
 int solarsense_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
 {
 	struct VeItem *root;
+	int source;
 	char name[24];
 	char dev[16];
 
@@ -186,9 +202,12 @@ int solarsense_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
 	if (!ble_dbus_is_enabled(root))
 		return 0;
 
+	source = ble_get_current_source();
+	if (ble_dbus_check_dup(root, buf, len, source))
+		return 0;
+
 	ble_dbus_set_regs(root, buf, len);
-	ble_dbus_update(root);
+	ble_dbus_update(root, source);
 
 	return 0;
 }
-

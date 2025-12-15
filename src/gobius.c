@@ -1,6 +1,7 @@
 #include <velib/vecan/products.h>
 
 #include "ble-dbus.h"
+#include "ble-scan.h"
 #include "gobius.h"
 #include "tank.h"
 
@@ -78,6 +79,7 @@ int gobius_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
 {
 	struct VeItem *root;
 	const uint8_t *uid;
+	int source;
 	char name[24];
 	char dev[16];
 	char fw[16];
@@ -108,12 +110,16 @@ int gobius_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
 	if (!ble_dbus_is_enabled(root))
 		return 0;
 
+	source = ble_get_current_source();
+	if (ble_dbus_check_dup(root, buf, len, source))
+		return 0;
+
 	/* Firmware version at payload offsets 7..9 */
 	snprintf(fw, sizeof(fw), "%u.%u.%u", buf[8], buf[8], buf[9]);
 	ble_dbus_set_str(root, "/FirmwareVersion", fw);
 
 	ble_dbus_set_regs(root, buf, len);
-	ble_dbus_update(root);
+	ble_dbus_update(root, source);
 
 	return 0;
 }

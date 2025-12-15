@@ -5,6 +5,7 @@
 #include <velib/vecan/products.h>
 
 #include "ble-dbus.h"
+#include "ble-scan.h"
 #include "safiery.h"
 #include "tank.h"
 
@@ -91,6 +92,7 @@ int safiery_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
 {
 	struct VeItem *root;
 	const uint8_t *uid = buf + 5;
+	int source;
 	char name[24];
 	char dev[16];
 
@@ -117,9 +119,12 @@ int safiery_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
 	if (!ble_dbus_is_enabled(root))
 		return 0;
 
+	source = ble_get_current_source();
+	if (ble_dbus_check_dup(root, buf, len, source))
+		return 0;
+
 	ble_dbus_set_regs(root, buf, len);
-	ble_dbus_update(root);
+	ble_dbus_update(root, source);
 
 	return 0;
 }
-

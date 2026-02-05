@@ -1,0 +1,4 @@
+obj/
+Makefile
+mk
+velib_path.mk

@@ -463,6 +463,10 @@ static int ble_dbus_connect(struct VeItem *droot)
 	ble_dbus_set_int(droot, "Status", 0);
 	veItemCreateProductId(droot, info->product_id);
 
+	/* Make device fields read-only to prevent external SetValue calls */
+	/* This protects all sensor readings and device info except user-configurable settings */
+	make_device_readonly(droot);
+
 	snprintf(name, sizeof(name), "com.victronenergy.%s.%s", role, dev_id);
 
 	dbus = veDbusConnectString(veDbusGetDefaultConnectString());
@@ -513,6 +517,86 @@ int ble_dbus_set_name(struct VeItem *droot, const char *name)
 	ble_dbus_set_str(ctl, buf, dname);
 
 	return 0;
+}
+
+static veBool readonly_setter(struct VeItem *item, void *ctx, VeVariant *variant)
+{
+	VE_UNUSED(item);
+	VE_UNUSED(ctx);
+	VE_UNUSED(variant);
+
+	/* Reject all SetValue attempts on read-only items */
+	return veFalse;
+}
+
+static void make_item_readonly(struct VeItem *root, const char *path)
+{
+	struct VeItem *item = veItemByUid(root, path);
+	if (item) {
+		veItemSetSetter(item, readonly_setter, NULL);
+	}
+}
+
+static void make_device_readonly(struct VeItem *root)
+{
+	/* Make all device fields read-only except for explicitly configurable settings */
+
+	/* Device identification fields - these should never be modifiable */
+	make_item_readonly(root, "Devices/0/ProductId");
+	make_item_readonly(root, "ProductId");
+	make_item_readonly(root, "Devices/0/DeviceInstance");
+	make_item_readonly(root, "DeviceInstance");
+	make_item_readonly(root, "ProductName");
+
+	/* Management and connection fields */
+	make_item_readonly(root, "Mgmt/ProcessName");
+	make_item_readonly(root, "Mgmt/ProcessVersion");
+	make_item_readonly(root, "Mgmt/Connection");
+	make_item_readonly(root, "Connected");
+
+	/* Device status and sensor readings should be read-only */
+	make_item_readonly(root, "Status");
+	make_item_readonly(root, "DeviceName");
+
+	/* Sensor readings that should be read-only */
+	make_item_readonly(root, "Level");
+	make_item_readonly(root, "Remaining");
+	make_item_readonly(root, "Temperature");
+	make_item_readonly(root, "Humidity");
+	make_item_readonly(root, "Pressure");
+	make_item_readonly(root, "Voltage");
+	make_item_readonly(root, "Current");
+	make_item_readonly(root, "Power");
+	make_item_readonly(root, "Energy");
+	make_item_readonly(root, "TxPowerLevel");
+	make_item_readonly(root, "TxPower");
+	make_item_readonly(root, "UnspecifiedRemnant");
+	make_item_readonly(root, "FirmwareVersion");
+	make_item_readonly(root, "HardwareVersion");
+
+	/* Additional sensor readings */
+	make_item_readonly(root, "AccelX");
+	make_item_readonly(root, "AccelY");
+	make_item_readonly(root, "AccelZ");
+	make_item_readonly(root, "BatteryVoltage");
+	make_item_readonly(root, "PM25");
+	make_item_readonly(root, "CO2");
+	make_item_readonly(root, "VOC");
+	make_item_readonly(root, "NOX");
+	make_item_readonly(root, "Luminosity");
+	make_item_readonly(root, "SeqNo");
+	make_item_readonly(root, "LowBattery");
+	make_item_readonly(root, "Flags");
+	make_item_readonly(root, "HardwareID");
+	make_item_readonly(root, "SyncButton");
+	make_item_readonly(root, "RawValue");
+	make_item_readonly(root, "ButaneRatio");
+	make_item_readonly(root, "TankLevelExtension");
+	make_item_readonly(root, "Quality");
+
+	/* Note: CustomName is intentionally left writable as it's a user setting */
+	/* Note: Enabled is intentionally left writable as it's a user setting */
+	/* Note: Alarm configurations are intentionally left writable as they're user settings */
 }
 
 static int alarm_name(const struct alarm *alarm, char *buf, size_t size)

@@ -552,7 +552,7 @@ int ble_dbus_add_alarms(struct VeItem *droot, const struct alarm *alarms,
 	for (i = 0; i < num_alarms; i++) {
 		const struct alarm *alarm = &alarms[i];
 
-		if (alarms->flags & ALARM_FLAG_CONFIG)
+		if (alarm->flags & ALARM_FLAG_CONFIG)
 			add_alarm_config(droot, alarm);
 	}
 

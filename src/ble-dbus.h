@@ -13,12 +13,13 @@
 #define alloc_size(x) align(x, sizeof(max_align_t))
 #define array_size(a) (sizeof(a) / sizeof(a[0]))
 
+typedef void (*setting_changed_fn)(struct VeItem *root, struct VeItem *setting,
+				   const void *data);
+
 struct dev_setting {
 	char		*name;
 	struct VeSettingProperties *props;
-	void		(*onchange)(struct VeItem *root,
-				    struct VeItem *setting,
-				    const void *data);
+	setting_changed_fn onchange;
 };
 
 struct alarm {

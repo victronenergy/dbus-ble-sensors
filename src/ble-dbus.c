@@ -288,7 +288,7 @@ void *ble_dbus_get_cdata(struct VeItem *root)
 
 struct setting_data {
 	struct VeItem			*root;
-	const struct dev_setting	*setting;
+	setting_changed_fn		onchange;
 };
 
 static int settings_path(struct VeItem *droot, char *buf, size_t size)
@@ -303,13 +303,12 @@ static int settings_path(struct VeItem *droot, char *buf, size_t size)
 static void on_setting_changed(struct VeItem *item)
 {
 	struct setting_data *d = veItemCtx(item)->ptr;
-	const struct dev_setting *ds = d->setting;
 	const void *data = get_dev_data(d->root);
 
 	if (!veItemIsValid(item))
 		return;
 
-	ds->onchange(d->root, item, data);
+	d->onchange(d->root, item, data);
 }
 
 int ble_dbus_add_settings(struct VeItem *droot,
@@ -333,7 +332,7 @@ int ble_dbus_add_settings(struct VeItem *droot,
 		if (ds->onchange) {
 			d = alloc_item_data(item, sizeof(*d));
 			d->root = droot;
-			d->setting = ds;
+			d->onchange = ds->onchange;
 			veItemSetChanged(item, on_setting_changed);
 		}
 	}

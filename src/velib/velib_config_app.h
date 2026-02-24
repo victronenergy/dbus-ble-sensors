@@ -29,6 +29,7 @@
 #define CFG_DBUS_NON_BLOCKING		1
 #define CFG_WITH_VE_VALUES		1
 #define CFG_WITH_VECAN_PRODUCT_NAMES	1
+#define CFG_WITH_LOG			1
 
 /* version and banner commandline option */
 #define CFG_WITH_VERSION		1

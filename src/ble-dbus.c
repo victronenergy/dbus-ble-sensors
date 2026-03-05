@@ -16,6 +16,7 @@
 
 struct device {
 	const struct dev_info	*info;
+	struct VeItem		*dev_ctl_ena;
 	const void		*data;
 	char			pdata[];
 };
@@ -42,17 +43,25 @@ static struct VeSettingProperties bool_val = {
 	.max.value.SN32 = 1,
 };
 
-static void free_item_data(struct VeItem *item)
+static void free_setting_data(struct VeItem *item)
 {
 	free(veItemCtx(item)->ptr);
 }
 
-static void *alloc_item_data(struct VeItem *item, size_t size)
+static void free_device_data(struct VeItem *item)
+{
+	struct device *d = veItemCtx(item)->ptr;
+	veItemCtx(d->dev_ctl_ena)->ptr = NULL;
+	veItemSetChanged(d->dev_ctl_ena, NULL);
+	free(d);
+}
+
+static void *alloc_item_data(struct VeItem *item, size_t size, VeItemAboutToBeRemoved *fun)
 {
 	void *p = calloc(1, size);
 
 	veItemCtx(item)->ptr = p;
-	veItemSetAboutToRemoved(item, free_item_data);
+	veItemSetAboutToRemoved(item, fun);
 
 	return p;
 }
@@ -331,7 +340,7 @@ int ble_dbus_add_settings(struct VeItem *droot,
 			ds->name, veVariantFmt, &veUnitNone, ds->props);
 
 		if (ds->onchange) {
-			d = alloc_item_data(item, sizeof(*d));
+			d = alloc_item_data(item, sizeof(*d), free_setting_data);
 			d->root = droot;
 			d->setting = ds;
 			veItemSetChanged(item, on_setting_changed);
@@ -358,16 +367,18 @@ static void on_enabled_changed(struct VeItem *ena)
 	veDbusDisconnect(dbus);
 }
 
-static void init_dev(struct VeItem *root, const struct dev_info *info,
-		     const void *data)
+static struct device *init_dev(struct VeItem *root, const struct dev_info *info,
+			       const void *data)
 {
 	const struct dev_class *dclass = get_dev_class(info);
 	int pdata_size = alloc_size(info->pdata_size) + dclass->pdata_size;
 	struct device *d;
 
-	d = alloc_item_data(root, sizeof(*d) + pdata_size);
+	d = alloc_item_data(root, sizeof(*d) + pdata_size, free_device_data);
 	d->info = info;
 	d->data = data;
+
+	return d;
 }
 
 struct VeItem *ble_dbus_create(const char *dev, const struct dev_info *info,
@@ -377,7 +388,7 @@ struct VeItem *ble_dbus_create(const char *dev, const struct dev_info *info,
 	struct VeItem *droot;
 	struct VeItem *settings = get_settings();
 	struct VeItem *ctl = get_control();
-	struct VeItem *ena;
+	struct device *d;
 	VeVariant val;
 	char dev_id[32];
 	char path[64];
@@ -388,16 +399,16 @@ struct VeItem *ble_dbus_create(const char *dev, const struct dev_info *info,
 		goto out;
 
 	droot = veItemGetOrCreateUid(devices, dev);
-	init_dev(droot, info, data);
+	d = init_dev(droot, info, data);
 
 	snprintf(dev_id, sizeof(dev_id), "%s%s", info->dev_prefix, dev);
 	snprintf(path, sizeof(path), "Settings/Devices/%s", dev_id);
 
 	snprintf(name, sizeof(name), "Devices/%s/Enabled", dev_id);
-	ena = veItemCreateSettingsProxyId(settings, path, ctl,
+	d->dev_ctl_ena = veItemCreateSettingsProxyId(settings, path, ctl,
 		"Enabled", veVariantFmt, &veUnitNone, &bool_val, name);
-	veItemCtx(ena)->ptr = droot;
-	veItemSetChanged(ena, on_enabled_changed);
+	veItemCtx(d->dev_ctl_ena)->ptr = droot;
+	veItemSetChanged(d->dev_ctl_ena, on_enabled_changed);
 
 	veItemCreateSettingsProxy(settings, path, droot, "CustomName",
 				  veVariantFmt, &veUnitNone, &empty_string);

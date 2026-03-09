@@ -110,7 +110,7 @@ int gobius_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
 
 	/* Firmware version at payload offsets 7..9 */
 	snprintf(fw, sizeof(fw), "%u.%u.%u", buf[8], buf[8], buf[9]);
-	ble_dbus_set_str(root, "/FirmwareVersion", fw);
+	ble_dbus_set_str(root, "FirmwareVersion", fw);
 
 	ble_dbus_set_regs(root, buf, len);
 	ble_dbus_update(root);

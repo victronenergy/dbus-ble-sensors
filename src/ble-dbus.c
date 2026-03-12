@@ -463,6 +463,7 @@ struct VeItem *ble_dbus_create(const char *dev, const struct dev_info *info,
 	veItemSetChanged(ena, on_enabled_changed);
 	ble_dbus_create_item(dev_ctl, "Age", veVariantSn32(&val, 0), &veUnitIndex);
 	ble_dbus_create_item(dev_ctl, "Name", veVariantInvalidType(&val, VE_HEAP_STR), &veUnitIndex);
+	veItemCreateProductId(dev_ctl, info->product_id);
 
 	veItemCreateSettingsProxy(settings, path, droot, "CustomName",
 				  veVariantFmt, &veUnitNone, &empty_string);

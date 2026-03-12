@@ -602,9 +602,6 @@ static void update_alarm(struct VeItem *droot, const struct alarm *alarm)
 	int active = 0;
 	char buf[64];
 
-	if (!alarm_enabled(droot, alarm))
-		return;
-
 	item = veItemByUid(droot, alarm->item);
 	if (!item || !veItemIsValid(item))
 		return;
@@ -614,21 +611,23 @@ static void update_alarm(struct VeItem *droot, const struct alarm *alarm)
 	if (!alarm_item)
 		return;
 
-	if (veItemIsValid(alarm_item)) {
-		veItemLocalValue(alarm_item, &val);
-		veVariantToN32(&val);
-		active = val.value.UN32;
+	if (alarm_enabled(droot, alarm)) {
+		if (veItemIsValid(alarm_item)) {
+			veItemLocalValue(alarm_item, &val);
+			veVariantToN32(&val);
+			active = val.value.UN32;
+		}
+
+		level = alarm_level(droot, alarm, active);
+
+		veItemLocalValue(item, &val);
+		veVariantToFloat(&val);
+
+		if (alarm->flags & ALARM_FLAG_HIGH)
+			active = val.value.Float > level;
+		else
+			active = val.value.Float < level;
 	}
-
-	level = alarm_level(droot, alarm, active);
-
-	veItemLocalValue(item, &val);
-	veVariantToFloat(&val);
-
-	if (alarm->flags & ALARM_FLAG_HIGH)
-		active = val.value.Float > level;
-	else
-		active = val.value.Float < level;
 
 	veVariantUn32(&val, active);
 	veItemOwnerSet(alarm_item, &val);

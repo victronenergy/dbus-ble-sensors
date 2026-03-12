@@ -134,6 +134,7 @@ int ble_dbus_set_str(struct VeItem *root, const char *path, const char *str);
 int ble_dbus_set_int(struct VeItem *root, const char *path, int num);
 int ble_dbus_set_float(struct VeItem *root, const char *path, float num);
 int ble_dbus_set_invalid(struct VeItem *root, const char *path);
+struct VeItem *ble_dbus_get_control_item(struct VeItem *droot, const char *name);
 void ble_dbus_update_alarms(struct VeItem *droot);
 int ble_dbus_update(struct VeItem *root);
 void ble_dbus_tick(void);

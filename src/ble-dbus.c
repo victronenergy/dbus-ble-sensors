@@ -124,11 +124,6 @@ int ble_dbus_set_invalid(struct VeItem *root, const char *path)
 	return 0;
 }
 
-struct VeItem *ble_dbus_get_item(struct VeItem *root, const char *path)
-{
-	return veItemByUid(root, path);
-}
-
 static void free_setting_data(struct VeItem *item)
 {
 	free(veItemCtx(item)->ptr);
@@ -345,6 +340,11 @@ int ble_dbus_add_interface(const char *name, const char *addr)
 struct VeItem *ble_dbus_get_dev(const char *dev)
 {
 	return veItemByUid(devices, dev);
+}
+
+struct VeItem *ble_dbus_get_control_item(struct VeItem *root, const char *path)
+{
+	return veItemByUid(get_dev_control(root), path);
 }
 
 int ble_dbus_is_enabled(struct VeItem *droot)

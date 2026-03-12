@@ -3,6 +3,9 @@
 #include "ble-dbus.h"
 #include "victron-solarsense.h"
 
+#include <openssl/aes.h>
+#include <openssl/evp.h>
+
 #define RECORD_TYPE_TEST_RECORD		    0x0000
 #define RECORD_TYPE_SOLAR_CHARGER	    0x0001
 #define RECORD_TYPE_BATTERY_MONITOR	    0x0002
@@ -22,6 +25,100 @@
 #define RECORD_TYPE_UNENCRYPTED_TEST_RECORD 0xFF00
 #define RECORD_TYPE_SOLARSENSE		    0xFF01
 
+struct victron_device_data {
+	veBool key_set;
+	uint8_t key[16];
+};
+
+// Returns 0 on success, < 0 on failure
+static int victron_decode(const uint8_t *buf, const uint8_t *key, const uint8_t *nonce,
+			  uint8_t *out, int len)
+{
+	// Decode data using AES-CTR-128
+	// Construct the 16-byte counter: 2-byte nonce + 14-byte counter
+	uint8_t iv[16];
+	uint8_t decrypted[16];
+
+	if (len > 16)
+		return -1;
+
+	// Copy nonce (2 bytes, little-endian)
+	iv[0] = nonce[0];
+	iv[1] = nonce[1];
+
+	// Fill the rest with zeros for the 14-byte counter
+	memset(&iv[2], 0, 14);
+
+	// Decrypt the 16 bytes at buf[8]
+	EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
+	if (!ctx) {
+		return -2;
+	}
+
+	// Initialize AES-128-CTR decryption
+	if (EVP_DecryptInit_ex(ctx, EVP_aes_128_ctr(), NULL, key, iv) != 1) {
+		EVP_CIPHER_CTX_free(ctx);
+		return -3;
+	}
+
+	int outlen;
+	// Decrypt the 16 bytes
+	if (EVP_DecryptUpdate(ctx, decrypted, &outlen, buf, len) != 1) {
+		EVP_CIPHER_CTX_free(ctx);
+		return -4;
+	}
+
+	EVP_CIPHER_CTX_free(ctx);
+	memcpy(out, decrypted, len);
+
+	return 0;
+}
+
+static uint8_t to_nibble(char c)
+{
+	if (c >= '0' && c <= '9')
+		return c - '0';
+	if (c >= 'A' && c <= 'F')
+		return c - 'A' + 10;
+	if (c >= 'a' && c <= 'f')
+		return c - 'a' + 10;
+	return 0xFF;
+}
+
+static void parse_key_setting(struct victron_device_data *d, struct VeItem *setting)
+{
+	VeVariant var;
+	veItemLocalValue(setting, &var);
+	if (var.type.tp != VE_HEAP_STR) {
+		d->key_set = veFalse;
+		return;
+	}
+	size_t key_len = strlen((const char *)var.value.CPtr);
+	if (key_len != 32) {
+		d->key_set = veFalse;
+		return;
+	}
+
+	const char *key_str = (const char *)var.value.CPtr;
+	// Convert from hex string to binary
+	for (int i = 0; i < 16; i++) {
+		uint8_t hn = to_nibble(key_str[i * 2]);
+		uint8_t ln = to_nibble(key_str[i * 2 + 1]);
+		if (hn > 0x0F || ln > 0x0F) {
+			d->key_set = veFalse;
+			return;
+		}
+		d->key[i] = (hn << 4) | ln;
+	}
+	d->key_set = veTrue;
+}
+
+static void on_key_setting_changed(struct VeItem *droot, struct VeItem *setting, const void *data)
+{
+	struct victron_device_data *pdata = ble_dbus_get_pdata(droot);
+	parse_key_setting(pdata, setting);
+}
+
 struct instant_readout_handler {
 	uint16_t record_type;
 	const struct victron_device *device;
@@ -31,11 +128,30 @@ static const struct instant_readout_handler instant_readout_handlers[] = {
 	{ RECORD_TYPE_SOLARSENSE, &solarsense_victron_device },
 };
 
+static struct VeSettingProperties key_props = {
+	.type	       = VE_STR, /* The setting will contain a VE_HEAP_STR */
+	.def.value.Ptr = "",
+};
+
+static const struct dev_setting victron_control_settings[] = {
+	{
+		.name	  = "Key",
+		.props	  = &key_props,
+		.onchange = on_key_setting_changed,
+	},
+};
+
 static int victron_device_init(struct VeItem *droot, const void *data)
 {
 	const struct instant_readout_handler *instant_readout_handler
 		= (const struct instant_readout_handler *)data;
 	const struct victron_device *victron_device = instant_readout_handler->device;
+	struct victron_device_data *pdata	    = ble_dbus_get_pdata(droot);
+	if (instant_readout_handler->record_type < 0xFF00) {
+		ble_dbus_add_control_settings(droot, victron_control_settings,
+					      array_size(victron_control_settings));
+		parse_key_setting(pdata, ble_dbus_get_control_item(droot, "Key"));
+	}
 	if (victron_device->dev_info->init)
 		return victron_device->dev_info->init(droot, NULL);
 
@@ -80,6 +196,7 @@ int victron_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
 	info.use_ble_name = veTrue;
 	info.dev_instance = 20;
 	info.init	  = victron_device_init;
+	info.pdata_size	  = sizeof(struct victron_device_data);
 	// Because there are already GX devices in the field with an Enabled setting for a solarsense,
 	// we keep the prefix for the solarsense. For all other device we use a more generic prefix.
 	// This way, when a device switches instant readout format, it will keep its key and enabled
@@ -98,7 +215,32 @@ int victron_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
 		return 0;
 
 	if (record_type < 0xFF00) {
-		// Not yet supported
+		// Encrypted record, decode it
+		uint8_t decrypted[16];
+		struct victron_device_data *pdata = ble_dbus_get_pdata(droot);
+
+		if (!pdata->key_set || (pdata->key[0] != buf[7])) {
+			struct VeItem *item;
+			VeVariant val;
+			fprintf(
+				stderr,
+				"%s: was enabled, but key not set (%d) or does not match device (%02X != %02X)\n",
+				veItemId(droot), pdata->key_set, pdata->key[0], buf[7]);
+			item = ble_dbus_get_control_item(droot, "Enabled");
+			if (!item || !veItemSet(item, veVariantSn32(&val, 0))) {
+				fprintf(stderr, "failed to disable device\n");
+			}
+			item = ble_dbus_get_control_item(droot, "Key");
+			if (!item || !veItemSet(item, veVariantHeapStr(&val, ""))) {
+				fprintf(stderr, "failed to clear key setting\n");
+				veVariantFree(&val);
+			}
+			return 0;
+		}
+		if (victron_decode(buf + 8, pdata->key, buf + 5, decrypted, len - 8) < 0)
+			return 0;
+
+		ble_dbus_set_regs(droot, decrypted, len - 8);
 	} else {
 		ble_dbus_set_regs(droot, buf + 8, len - 8);
 	}

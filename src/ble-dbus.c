@@ -459,9 +459,10 @@ static void on_setting_changed(struct VeItem *item)
 	d->onchange(d->root, item, data);
 }
 
-int ble_dbus_add_settings(struct VeItem *droot,
-			  const struct dev_setting *dev_settings,
-			  int num_settings)
+static int add_settings(struct VeItem *droot,
+			struct VeItem *root,
+			const struct dev_setting *dev_settings,
+			int num_settings)
 {
 	struct VeItem *settings = get_settings();
 	struct VeItem *item;
@@ -474,7 +475,7 @@ int ble_dbus_add_settings(struct VeItem *droot,
 		const struct dev_setting *ds = &dev_settings[i];
 		struct setting_data *d;
 
-		item = veItemCreateSettingsProxySync(settings, path, droot,
+		item = veItemCreateSettingsProxySync(settings, path, root,
 			ds->name, veVariantFmt, &veUnitNone, ds->props);
 
 		if (ds->onchange) {
@@ -486,6 +487,13 @@ int ble_dbus_add_settings(struct VeItem *droot,
 	}
 
 	return 0;
+}
+
+int ble_dbus_add_settings(struct VeItem *droot,
+			  const struct dev_setting *settings,
+			  int num_settings)
+{
+	return add_settings(droot, droot, settings, num_settings);
 }
 
 /* This function stores a name in the device's names array */
@@ -663,6 +671,8 @@ struct VeItem *ble_dbus_create(const char *dev, const struct dev_info *info,
 	item = ble_dbus_create_item(droot, "CustomName",
 			veVariantInvalidType(&val, VE_HEAP_STR), &veUnitIndex);
 	veItemSetSetter(item, on_customname_set, d->settings_cname);
+
+	add_settings(droot, dev_ctl, info->ctl_settings, info->num_ctl_settings);
 
 	ble_dbus_create_str(droot, "Mgmt/ProcessName", pltProgramName());
 	ble_dbus_create_str(droot, "Mgmt/ProcessVersion", VERSION);

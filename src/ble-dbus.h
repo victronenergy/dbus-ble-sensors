@@ -78,6 +78,8 @@ struct dev_info {
 	uint16_t	dev_instance;
 	const char	*dev_prefix;
 	const char	*role;
+	int		num_ctl_settings;
+	const struct dev_setting *ctl_settings;
 	int		num_settings;
 	const struct dev_setting *settings;
 	uint32_t	reg_key;

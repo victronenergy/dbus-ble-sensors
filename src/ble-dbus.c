@@ -623,6 +623,7 @@ struct VeItem *ble_dbus_create(const char *dev, const struct dev_info *info,
 	ble_dbus_create_str(droot, "Mgmt/ProcessName", pltProgramName());
 	ble_dbus_create_str(droot, "Mgmt/ProcessVersion", VERSION);
 	ble_dbus_create_str(droot, "Mgmt/Connection", data_source_str[d->active_source]);
+	ble_dbus_create_int(droot, "Mgmt/InsecureConnection", 1);
 	ble_dbus_create_int(droot, "Connected", 1);
 	ble_dbus_create_int(droot, "Devices/0/ProductId", info->product_id);
 	ble_dbus_create_int(droot, "Devices/0/DeviceInstance", 0);

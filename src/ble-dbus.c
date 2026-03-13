@@ -255,6 +255,12 @@ static int load_int(VeVariant *val, const struct reg_info *reg,
 
 	v = zext(v >> reg->shift, bits);
 
+	if ((reg->flags & REG_FLAG_WARN_ALARM)) {
+		if (v == 0)
+			return -1;
+		veVariantSn32(val, (int)v - 1);
+		return 0;
+	}
 	if ((reg->flags & REG_FLAG_INVALID) && v == reg->inval)
 		return -1;
 

@@ -58,6 +58,7 @@ struct reg_info {
 #define REG_FLAG_BIG_ENDIAN	(1 << 0)
 #define REG_FLAG_INVALID	(1 << 1)
 #define REG_FLAG_KEY		(1 << 2)
+#define REG_FLAG_WARN_ALARM	(1 << 3)
 
 struct dev_class {
 	const char	*role;

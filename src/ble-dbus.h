@@ -117,6 +117,8 @@ void *ble_dbus_get_cdata(struct VeItem *root);
 int ble_dbus_add_settings(struct VeItem *droot,
 			  const struct dev_setting *settings,
 			  int num_settings);
+int ble_dbus_add_control_settings(struct VeItem *droot, const struct dev_setting *settings,
+				  int num_settings);
 int ble_dbus_add_alarms(struct VeItem *droot, const struct alarm *alarms,
 			int num_alarms);
 int ble_dbus_is_enabled(struct VeItem *root);

@@ -390,9 +390,10 @@ static void on_setting_changed(struct VeItem *item)
 	d->onchange(d->root, item, data);
 }
 
-int ble_dbus_add_settings(struct VeItem *droot,
-			  const struct dev_setting *dev_settings,
-			  int num_settings)
+static int add_settings(struct VeItem *droot,
+			struct VeItem *root,
+			const struct dev_setting *dev_settings,
+			int num_settings)
 {
 	struct VeItem *settings = get_settings();
 	struct VeItem *item;
@@ -405,7 +406,7 @@ int ble_dbus_add_settings(struct VeItem *droot,
 		const struct dev_setting *ds = &dev_settings[i];
 		struct setting_data *d;
 
-		item = veItemCreateSettingsProxySync(settings, path, droot,
+		item = veItemCreateSettingsProxySync(settings, path, root,
 			ds->name, veVariantFmt, &veUnitNone, ds->props);
 
 		if (ds->onchange) {
@@ -417,6 +418,21 @@ int ble_dbus_add_settings(struct VeItem *droot,
 	}
 
 	return 0;
+}
+
+int ble_dbus_add_settings(struct VeItem *droot,
+			  const struct dev_setting *settings,
+			  int num_settings)
+{
+	return add_settings(droot, droot, settings, num_settings);
+}
+
+int ble_dbus_add_control_settings(struct VeItem *droot,
+				  const struct dev_setting *settings,
+				  int num_settings)
+{
+	struct VeItem *ctl = get_dev_control(droot);
+	return add_settings(droot, ctl, settings, num_settings);
 }
 
 /* This function stores a name in the device's names array */

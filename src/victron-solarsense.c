@@ -149,6 +149,7 @@ static const struct alarm solarsense_alarms[] = {
 };
 
 static const struct dev_info solarsense_dev_info = {
+	.unknown_name	= "Unknown SolarSense",
 	.role		= "meteo",
 	.num_regs	= array_size(solarsense_adv),
 	.regs		= solarsense_adv,

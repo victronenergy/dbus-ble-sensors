@@ -16,6 +16,7 @@
 #define HW_ID_TOPDOWN_BLE		10
 #define HW_ID_TOPDOWN_CELL		11
 #define HW_ID_UNIVERSAL			12
+#define HW_ID_PRO_200_B			18
 
 struct mopeka_model {
 	struct tank_info ti;	/* must be first */
@@ -125,6 +126,13 @@ static const struct mopeka_model mopeka_models[] = {
 		.hwid	= HW_ID_UNIVERSAL,
 		.type	= "Univ",
 		.flags	= MOPEKA_FLAG_BUTANE,
+	},
+	{
+		/* Pro-200 B, top-down, battery powered */
+		.hwid	= HW_ID_PRO_200_B,
+		.type	= "Pro200B",
+		.coefs	= mopeka_coefs_air,
+		.ti.flags = TANK_FLAG_TOPDOWN,
 	},
 };
 

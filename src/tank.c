@@ -46,7 +46,7 @@ static struct VeSettingProperties full_props = {
 };
 
 static struct VeSettingProperties shape_props = {
-	.type			= VE_HEAP_STR,
+	.type			= VE_STR,
 	.def.value.Ptr		= "",
 };
 

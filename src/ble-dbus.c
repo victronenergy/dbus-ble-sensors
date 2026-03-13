@@ -405,7 +405,7 @@ int ble_dbus_add_settings(struct VeItem *droot,
 		const struct dev_setting *ds = &dev_settings[i];
 		struct setting_data *d;
 
-		item = veItemCreateSettingsProxy(settings, path, droot,
+		item = veItemCreateSettingsProxySync(settings, path, droot,
 			ds->name, veVariantFmt, &veUnitNone, ds->props);
 
 		if (ds->onchange) {

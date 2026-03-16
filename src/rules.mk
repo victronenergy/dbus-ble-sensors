@@ -5,6 +5,7 @@ SRCS += task.c
 SRCS += tank.c
 SRCS += temperature.c
 
+SRCS += garnet.c
 SRCS += gobius.c
 SRCS += mopeka.c
 SRCS += ruuvi.c

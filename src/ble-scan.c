@@ -18,7 +18,7 @@
 #include "mopeka.h"
 #include "ruuvi.h"
 #include "safiery.h"
-#include "solarsense.h"
+#include "victron.h"
 #include "task.h"
 
 #define SCAN_INTERVAL	90
@@ -34,7 +34,7 @@ static const struct mfg_data_handler mfg_data_handlers[] = {
 	{ MFG_ID_RUUVI,		ruuvi_handle_mfg },
 	{ MFG_ID_NORDIC,	mopeka_handle_mfg },
 	{ MFG_ID_SAFIERY,	safiery_handle_mfg },
-	{ MFG_ID_SOLARSENSE,	solarsense_handle_mfg },
+	{ MFG_ID_VICTRON,	victron_handle_mfg },
 	{ MFG_ID_GARNET,	garnet_handle_mfg },
 };
 

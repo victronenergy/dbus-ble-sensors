@@ -10,4 +10,5 @@ SRCS += gobius.c
 SRCS += mopeka.c
 SRCS += ruuvi.c
 SRCS += safiery.c
-SRCS += solarsense.c
+SRCS += victron.c
+SRCS += victron-solarsense.c

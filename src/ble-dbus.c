@@ -664,6 +664,27 @@ int ble_dbus_update(struct VeItem *droot)
 	return 0;
 }
 
+static void ble_dbus_delete(struct VeItem *droot)
+{
+	const struct dev_info *info = get_dev_info(droot);
+	const char *dev = veItemId(droot);
+	struct VeItem *ctl = get_control();
+	struct VeItem *ctl_item;
+	struct VeDbus *dbus;
+	char devp[32];
+
+	snprintf(devp, sizeof(devp), "Devices/%s%s", info->dev_prefix, dev);
+	ctl_item = veItemByUid(ctl, devp);
+	if (ctl_item)
+		veItemDeleteBranch(ctl_item);
+
+	dbus = veItemDbus(droot);
+	if (dbus)
+		veDbusDisconnect(dbus);
+
+	veItemDeleteBranch(droot);
+}
+
 static void ble_dbus_expire(void)
 {
 	struct VeItem *dev = veItemFirstChild(devices);
@@ -676,12 +697,7 @@ static void ble_dbus_expire(void)
 		veVariantToN32(&val);
 
 		if (tick - val.value.UN32 > 1800 * TICKS_PER_SEC) {
-			struct VeDbus *dbus = veItemDbus(dev);
-
-			if (dbus)
-				veDbusDisconnect(dbus);
-
-			veItemDeleteBranch(dev);
+			ble_dbus_delete(dev);
 		}
 
 		dev = next;

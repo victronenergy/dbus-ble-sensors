@@ -91,9 +91,10 @@ void taskInit(void)
 
 	err = ble_scan_open();
 	if (err < 0) {
-		fprintf(stderr, "no device found\n");
+		fprintf(stderr, "failed to open bluetooth scan control socket\n");
 		pltExit(1);
 	}
+
 	ble_socket_open();
 
 	atexit(ble_scan_close);
@@ -102,7 +103,6 @@ void taskInit(void)
 
 void taskUpdate(void)
 {
-	ble_scan();
 }
 
 void taskTick(void)

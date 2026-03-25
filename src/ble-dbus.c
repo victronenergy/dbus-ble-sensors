@@ -348,15 +348,6 @@ static void create_regs(struct VeItem *root)
 static struct VeItem *devices;
 static uint32_t tick;
 
-static void on_contscan_changed(struct VeItem *cont)
-{
-	VeVariant val;
-
-	veItemLocalValue(cont, &val);
-	if (veVariantIsValid(&val))
-		ble_scan_continuous(val.value.SN32);
-}
-
 static void on_dedup_window_changed(struct VeItem *item)
 {
 	VeVariant val;
@@ -371,16 +362,11 @@ int ble_dbus_init(void)
 {
 	struct VeItem *settings = get_settings();
 	struct VeItem *ctl = get_control();
-	struct VeItem *cont;
 	struct VeItem *dedup;
 
 	devices = veItemAlloc(NULL, "");
 	if (!devices)
 		return -1;
-
-	cont = veItemCreateSettingsProxy(settings, "Settings/BleSensors",
-		ctl, "ContinuousScan", veVariantFmt, &veUnitNone, &bool_val);
-	veItemSetChanged(cont, on_contscan_changed);
 
 	dedup = veItemCreateSettingsProxy(settings, "Settings/BleSensors", ctl, "DeduplicationWindow",
 					  veVariantFmt, &veUnitNone, &dedup_window_props);
@@ -398,6 +384,15 @@ int ble_dbus_add_interface(const char *name, const char *addr)
 	ble_dbus_create_str(ctl, buf, addr);
 
 	return 0;
+}
+
+int ble_dbus_invalidate_interface(const char *name)
+{
+	struct VeItem *ctl = get_control();
+	char buf[256];
+
+	snprintf(buf, sizeof(buf), "Interfaces/%s/Address", name);
+	return ble_dbus_set_invalid(ctl, buf);
 }
 
 struct VeItem *ble_dbus_get_dev(const char *dev)

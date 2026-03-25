@@ -105,6 +105,7 @@ extern const VeVariantUnitFmt veUnitIndex;
 
 int ble_dbus_init(void);
 int ble_dbus_add_interface(const char *name, const char *addr);
+int ble_dbus_invalidate_interface(const char *name);
 struct VeItem *ble_dbus_create(const char *dev, const struct dev_info *info,
 			       const void *data);
 struct VeItem *ble_dbus_get_dev(const char *dev);

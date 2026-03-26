@@ -23,6 +23,13 @@
 #define SCAN_INTERVAL	90
 #define SCAN_WINDOW	15
 
+#define SCAN_TYPE_PASSIVE	0
+#define SCAN_TYPE_ACTIVE	1
+
+#define SCAN_SETTING_DEFAULT	0
+#define SCAN_SETTING_PASSIVE	1
+#define SCAN_SETTING_ACTIVE	2
+
 struct mgmt_hdr {
 	uint16_t opcode;
 	uint16_t index;
@@ -51,6 +58,7 @@ static struct hci_device devices[HCI_MAX_DEV];
 static int cont_scan;
 static int ble_scan_enabled = 1;
 static int hci_ctl_sock = -1;
+static int scan_type = 0;
 static struct event *hci_ctl_ev = NULL;
 
 static struct VeSettingProperties ble_enabled_props = {
@@ -67,9 +75,17 @@ static struct VeSettingProperties continuous_scan_props = {
 	.max.value.SN32 = 1,
 };
 
+static struct VeSettingProperties scan_type_props = {
+	.type		= VE_SN32,
+	.def.value.SN32 = 0,
+	.min.value.SN32 = 0,
+	.max.value.SN32 = 2,
+};
+
 static int ble_scan_setup(struct hci_device *dev, int addr_type)
 {
 	int interval = cont_scan ? SCAN_WINDOW : SCAN_INTERVAL;
+	int type = scan_type == SCAN_SETTING_ACTIVE ? SCAN_TYPE_ACTIVE : SCAN_TYPE_PASSIVE;
 	int err;
 
 	if (dev->sock < 0)
@@ -77,7 +93,7 @@ static int ble_scan_setup(struct hci_device *dev, int addr_type)
 
 	hci_le_set_scan_enable(dev->sock, 0, 1, 1000);
 
-	err = hci_le_set_scan_parameters(dev->sock, 0,
+	err = hci_le_set_scan_parameters(dev->sock, type,
 					 htobs(interval), htobs(SCAN_WINDOW),
 					 addr_type, 0, 1000);
 	if (err < 0)
@@ -600,6 +616,24 @@ static void on_ble_enabled_changed(struct VeItem *item)
 	}
 }
 
+static void on_scan_type_changed(struct VeItem *item)
+{
+	VeVariant val;
+	int i;
+
+	veItemLocalValue(item, &val);
+	if (!veVariantIsValid(&val))
+		return;
+
+	if (scan_type == val.value.SN32)
+		return;
+
+	scan_type = val.value.SN32;
+	for (i = 0; i < ARRAY_LENGTH(devices); i++) {
+		ble_scan_setup(&devices[i], devices[i].addr_type);
+	}
+}
+
 int ble_scan_init(void)
 {
 	struct VeItem *settings = get_settings();
@@ -629,6 +663,14 @@ int ble_scan_init(void)
 	veItemLocalValue(item, &val);
 	if (veVariantIsValid(&val)) {
 		ble_scan_enabled = val.value.SN32 ? 1 : 0;
+	}
+
+	item = veItemCreateSettingsProxySync(settings, "Settings/BleSensors", ctl, "ActiveScan",
+					     veVariantFmt, &veUnitNone, &scan_type_props);
+	veItemSetChanged(item, on_scan_type_changed);
+	veItemLocalValue(item, &val);
+	if (veVariantIsValid(&val)) {
+		scan_type = val.value.SN32;
 	}
 
 	return 0;

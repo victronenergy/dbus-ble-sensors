@@ -29,10 +29,77 @@
 #define RECORD_TYPE_UNENCRYPTED_TEST_RECORD 0xFF00
 #define RECORD_TYPE_SOLARSENSE		    0xFF01
 
+#define RAW_MSG_LOG_WINDOW 20
+#define RAW_MSG_MAX_LEN    64
+
+#define EXTRA_LOGGING	1
+
+struct raw_msg_entry {
+	uint8_t data[RAW_MSG_MAX_LEN];
+	uint16_t len;
+	uint32_t idx;
+	uint16_t seqnr;
+};
+
 struct victron_device_data {
 	veBool key_set;
 	uint8_t key[16];
+#if EXTRA_LOGGING
+	struct raw_msg_entry raw_msg_history[RAW_MSG_LOG_WINDOW];
+	uint8_t raw_msg_head;
+	uint8_t raw_msg_count;
+	uint32_t raw_msg_counter;
+	uint8_t raw_msg_capture_remaining;
+#endif
 };
+
+#if EXTRA_LOGGING
+static void log_raw_message(const char *tag, const struct raw_msg_entry *entry)
+{
+	int i;
+
+	fprintf(stderr, "%s idx=%u seq=%u len=%u: ", tag, entry->idx, entry->seqnr, entry->len);
+	for (i = 0; i < entry->len; ++i) {
+		fprintf(stderr, "%02X ", entry->data[i]);
+	}
+	fprintf(stderr, "\n");
+}
+
+static void store_raw_message(struct victron_device_data *pdata, 
+	const uint8_t *buf, int len, uint16_t seqnr)
+{
+	pdata->raw_msg_head = (pdata->raw_msg_head + 1) % RAW_MSG_LOG_WINDOW;
+	struct raw_msg_entry *entry = &pdata->raw_msg_history[pdata->raw_msg_head];
+
+	if (len < 0)
+		len = 0;
+	if (len > RAW_MSG_MAX_LEN)
+		len = RAW_MSG_MAX_LEN;
+
+	memcpy(entry->data, buf, len);
+	entry->len = len;
+	entry->idx = ++pdata->raw_msg_counter;
+	entry->seqnr = seqnr;
+
+	if (pdata->raw_msg_count < RAW_MSG_LOG_WINDOW)
+		pdata->raw_msg_count++;
+}
+
+static void log_last_raw_messages(struct victron_device_data *pdata, const char *tag)
+{
+	if (!pdata->raw_msg_count) {
+		fprintf(stderr, "!!!!!! %s: no previous messages\n", tag);
+		return;
+	}
+
+	int oldest = (pdata->raw_msg_head + 1 + RAW_MSG_LOG_WINDOW - pdata->raw_msg_count) % RAW_MSG_LOG_WINDOW;
+	for (int i = 0; i < pdata->raw_msg_count - 1; ++i) {
+		log_raw_message("raw-prev", &pdata->raw_msg_history[(oldest + i) % RAW_MSG_LOG_WINDOW]);
+	}
+	log_raw_message(tag, &pdata->raw_msg_history[pdata->raw_msg_head]);
+	pdata->raw_msg_count = 0;
+}
+#endif
 
 // Returns 0 on success, < 0 on failure
 static int victron_decode(const uint8_t *buf, const uint8_t *key, const uint8_t *nonce,
@@ -225,14 +292,23 @@ int victron_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len, enum d
 	if (!ble_dbus_is_enabled(droot))
 		return 0;
 
+	struct victron_device_data *pdata = ble_dbus_get_pdata(droot);
 	seqnr = (buf[6] << 8) | buf[5];
-	if (ble_dbus_check_dup_seq(droot, source, seqnr))
+	if (ble_dbus_check_dup_seq(droot, source, seqnr)) {
+#if EXTRA_LOGGING
+		// This should not happen when using only BLE
+		store_raw_message(pdata, buf, len, seqnr);
+		log_last_raw_messages(pdata, "raw-dup");
+#endif
 		return 0;
-
+	}
+#if EXTRA_LOGGING
+	veBool should_log = veFalse;
+	store_raw_message(pdata, buf, len, seqnr);
+#endif
 	if (record_type < 0xFF00) {
 		// Encrypted record, decode it
 		uint8_t decrypted[16];
-		struct victron_device_data *pdata = ble_dbus_get_pdata(droot);
 
 		if (!pdata->key_set || (pdata->key[0] != buf[7])) {
 			struct VeItem *item;
@@ -256,9 +332,63 @@ int victron_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len, enum d
 			return 0;
 
 		ble_dbus_set_regs(droot, decrypted, len - 8);
+
+#if EXTRA_LOGGING
+		if (record_type != RECORD_TYPE_LYNX_SMART_BMS) {
+		} else {
+			struct LynxSmartBMS {
+				uint8_t error;
+				uint16_t ttg;
+				int16_t voltage;
+				int16_t current;
+				uint16_t bms_io;
+				uint32_t warnings_alarms:18;
+				uint16_t soc:10;
+				uint32_t consumed_ah:20;
+				uint8_t temperature:7;
+			} __attribute__((packed));
+			struct LynxSmartBMS *bms = (struct LynxSmartBMS *)(decrypted);
+			if (bms->error) {
+				should_log = veTrue;
+			} else if (bms->voltage < 1000 || bms->voltage > 6000) {
+				should_log = veTrue;
+			} else if (bms->current < -500 || bms->current > 500) {
+				should_log = veTrue;
+			} else if (bms->soc > 1000) {
+				should_log = veTrue;
+			} else if (bms->temperature < 20 /* -20 degrees */
+					|| bms->temperature > 90 /* 50 degrees */) {
+				should_log = veTrue;
+			} else if (info.product_id != 0xA1D0 && bms->bms_io & 0xF3C3) {
+				should_log = veTrue;
+			} else if (info.product_id != 0xA1D0 && (bms->warnings_alarms & 0x0000F0)) {
+				should_log = veTrue;
+			} else if (info.product_id == 0xA1D0 && bms->bms_io & 0x33C3) {
+				should_log = veTrue;
+			} else if (info.product_id == 0xA1D0 && (bms->warnings_alarms & 0x0000C0)) {
+				should_log = veTrue;
+			}
+		}
+		// int highInternalTemperature = veItemValueInt(droot, "Alarms/HighInternalTemperature");
+		// veBool highInternalTemperatureProblem = info.product_id != 0xA1D0
+		// 	&& highInternalTemperature != VE_INVALID_SN32
+		// 	&& highInternalTemperature != -1;
+		// int ioExternalRelay = veItemValueInt(droot, "Io/ExternalRelay");
+		// veBool ioExternalRelayProblem = ioExternalRelay != VE_INVALID_SN32
+		// 	&& ioExternalRelay != -1;
+#endif
 	} else {
 		ble_dbus_set_regs(droot, buf + 8, len - 8);
 	}
+#if EXTRA_LOGGING
+	if (should_log) {
+		log_last_raw_messages(pdata, "raw-err");
+		pdata->raw_msg_capture_remaining = RAW_MSG_LOG_WINDOW;
+	} else if (pdata->raw_msg_capture_remaining > 0) {
+		log_last_raw_messages(pdata, "raw-next");
+		pdata->raw_msg_capture_remaining--;
+	}
+#endif
 	ble_dbus_update(droot);
 
 	return 0;

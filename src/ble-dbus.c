@@ -16,6 +16,7 @@
 
 struct device {
 	const struct dev_info	*info;
+	struct VeItem		*ctl;
 	const void		*data;
 	char			pdata[];
 };
@@ -67,6 +68,12 @@ static inline const void *get_dev_data(struct VeItem *root)
 {
 	struct device *d = veItemCtx(root)->ptr;
 	return d->data;
+}
+
+static inline struct VeItem *get_dev_control(struct VeItem *root)
+{
+	struct device *d = veItemCtx(root)->ptr;
+	return d->ctl;
 }
 
 static const struct dev_class null_class;
@@ -263,15 +270,8 @@ struct VeItem *ble_dbus_get_dev(const char *dev)
 
 int ble_dbus_is_enabled(struct VeItem *droot)
 {
-	const struct dev_info *info = get_dev_info(droot);
-	const char *dev = veItemId(droot);
-	struct VeItem *ctl = get_control();
-	char name[64];
-
-	snprintf(name, sizeof(name), "Devices/%s%s/Enabled",
-		 info->dev_prefix, dev);
-
-	return veItemValueInt(ctl, name) == 1;
+	struct VeItem *ctl = get_dev_control(droot);
+	return veItemValueInt(ctl, "Enabled") == 1;
 }
 
 void *ble_dbus_get_pdata(struct VeItem *root)
@@ -358,7 +358,7 @@ static void on_enabled_changed(struct VeItem *ena)
 }
 
 static void init_dev(struct VeItem *root, const struct dev_info *info,
-		     const void *data)
+		     const void *data, struct VeItem *ctl)
 {
 	const struct dev_class *dclass = get_dev_class(info);
 	int pdata_size = alloc_size(info->pdata_size) + dclass->pdata_size;
@@ -367,6 +367,7 @@ static void init_dev(struct VeItem *root, const struct dev_info *info,
 	d = alloc_item_data(root, sizeof(*d) + pdata_size);
 	d->info = info;
 	d->data = data;
+	d->ctl = ctl;
 }
 
 struct VeItem *ble_dbus_create(const char *dev, const struct dev_info *info,
@@ -376,9 +377,9 @@ struct VeItem *ble_dbus_create(const char *dev, const struct dev_info *info,
 	struct VeItem *droot;
 	struct VeItem *settings = get_settings();
 	struct VeItem *ctl = get_control();
+	struct VeItem *dev_ctl;
 	struct VeItem *ena;
 	VeVariant val;
-	char dev_id[32];
 	char path[64];
 	char name[64];
 
@@ -386,15 +387,14 @@ struct VeItem *ble_dbus_create(const char *dev, const struct dev_info *info,
 	if (droot)
 		goto out;
 
+	snprintf(name, sizeof(name), "Devices/%s%s", info->dev_prefix, dev);
+	dev_ctl = veItemGetOrCreateUid(ctl, name);
 	droot = veItemGetOrCreateUid(devices, dev);
-	init_dev(droot, info, data);
+	init_dev(droot, info, data, dev_ctl);
 
-	snprintf(dev_id, sizeof(dev_id), "%s%s", info->dev_prefix, dev);
-	snprintf(path, sizeof(path), "Settings/Devices/%s", dev_id);
-
-	snprintf(name, sizeof(name), "Devices/%s/Enabled", dev_id);
-	ena = veItemCreateSettingsProxyId(settings, path, ctl,
-		"Enabled", veVariantFmt, &veUnitNone, &bool_val, name);
+	snprintf(path, sizeof(path), "Settings/Devices/%s", veItemId(dev_ctl));
+	ena = veItemCreateSettingsProxy(settings, path, dev_ctl, "Enabled", veVariantFmt,
+ 					&veUnitNone, &bool_val);
 	veItemCtx(ena)->ptr = droot;
 	veItemSetChanged(ena, on_enabled_changed);
 
@@ -495,13 +495,9 @@ int ble_dbus_set_regs(struct VeItem *droot, const uint8_t *data, int len)
 
 int ble_dbus_set_name(struct VeItem *droot, const char *name)
 {
-	const char *dev = veItemId(droot);
-	const struct dev_info *info = get_dev_info(droot);
 	const char *dname = name;
-	struct VeItem *ctl;
 	struct VeItem *cname;
 	VeVariant v;
-	char buf[64];
 
 	cname = veItemByUid(droot, "CustomName");
 
@@ -512,10 +508,8 @@ int ble_dbus_set_name(struct VeItem *droot, const char *name)
 			dname = name;
 	}
 
-	ctl = get_control();
-	snprintf(buf, sizeof(buf), "Devices/%s%s/Name", info->dev_prefix, dev);
 	ble_dbus_set_str(droot, "DeviceName", name);
-	ble_dbus_set_str(ctl, buf, dname);
+	ble_dbus_set_str(get_dev_control(droot), "Name", dname);
 
 	return 0;
 }
@@ -670,17 +664,10 @@ int ble_dbus_update(struct VeItem *droot)
 
 static void ble_dbus_delete(struct VeItem *droot)
 {
-	const struct dev_info *info = get_dev_info(droot);
-	const char *dev = veItemId(droot);
-	struct VeItem *ctl = get_control();
-	struct VeItem *ctl_item;
+	struct VeItem *ctl_item = get_dev_control(droot);
 	struct VeDbus *dbus;
-	char devp[32];
 
-	snprintf(devp, sizeof(devp), "Devices/%s%s", info->dev_prefix, dev);
-	ctl_item = veItemByUid(ctl, devp);
-	if (ctl_item)
-		veItemDeleteBranch(ctl_item);
+	veItemDeleteBranch(ctl_item);
 
 	dbus = veItemDbus(droot);
 	if (dbus)

@@ -551,7 +551,7 @@ struct VeItem *ble_dbus_create(const char *dev, const struct dev_info *info,
 	store_name(droot, NAME_ORIG_CUSTOM, &val);
 
 	snprintf(path, sizeof(path), "Settings/Devices/%s", veItemId(dev_ctl));
-	item = veItemCreateSettingsProxy(settings, path, dev_ctl, "Enabled", veVariantFmt,
+	item = veItemCreateSettingsProxySync(settings, path, dev_ctl, "Enabled", veVariantFmt,
  					&veUnitNone, &bool_val);
 	veItemCtx(item)->ptr = droot;
 	veItemSetChanged(item, on_enabled_changed);

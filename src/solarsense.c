@@ -150,6 +150,7 @@ static const struct alarm solarsense_alarms[] = {
 
 static const struct dev_info solarsense_sensor = {
 	.product_id	= VE_PROD_ID_SOLAR_SENSE_750,
+	.use_ble_name	= veTrue,
 	.dev_instance	= 20,
 	.dev_prefix	= "solarsense_",
 	.role		= "meteo",
@@ -181,7 +182,7 @@ int solarsense_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
 
 	snprintf(name, sizeof(name), "SolarSense %02X%02X",
 		 addr->b[1], addr->b[0]);
-	ble_dbus_set_name(root, name);
+	ble_dbus_set_name(root, name, NAME_ORIG_DEVICE);
 
 	if (!ble_dbus_is_enabled(root))
 		return 0;

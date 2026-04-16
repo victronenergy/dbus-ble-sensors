@@ -151,7 +151,7 @@ int garnet_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
 		if (!droot)
 			return -1;
 
-		ble_dbus_set_name(droot, name);
+		ble_dbus_set_name(droot, name, NAME_ORIG_DEVICE);
 
 		if (!ble_dbus_is_enabled(droot))
 			continue;

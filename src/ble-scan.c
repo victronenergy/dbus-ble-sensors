@@ -216,7 +216,7 @@ static int ble_handle_name(const bdaddr_t *addr, const uint8_t *buf, int len)
 
 	root = ble_dbus_get_dev(dev);
 	if (root)
-		ble_dbus_set_name(root, name);
+		ble_dbus_set_name(root, name, NAME_ORIG_BLE);
 
 	return 0;
 }

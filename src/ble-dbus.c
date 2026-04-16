@@ -461,6 +461,7 @@ struct VeItem *ble_dbus_create(const char *dev, const struct dev_info *info,
  					&veUnitNone, &bool_val);
 	veItemCtx(ena)->ptr = droot;
 	veItemSetChanged(ena, on_enabled_changed);
+	ble_dbus_create_item(dev_ctl, "Age", veVariantSn32(&val, 0), &veUnitIndex);
 	ble_dbus_create_item(dev_ctl, "Name", veVariantInvalidType(&val, VE_HEAP_STR), &veUnitIndex);
 
 	veItemCreateSettingsProxy(settings, path, droot, "CustomName",
@@ -756,11 +757,12 @@ static void ble_dbus_expire(void)
 	while (dev) {
 		struct VeItem *next = veItemNextChild(dev);
 		VeVariant val;
+		uint32_t dev_ticks = veItemLocalValue(dev, &val)->value.UN32;
+		uint32_t age       = tick - dev_ticks;
 
-		veItemLocalValue(dev, &val);
-		veVariantToN32(&val);
+		ble_dbus_set_int(get_dev_control(dev), "Age", age / TICKS_PER_SEC);
 
-		if (tick - val.value.UN32 > 1800 * TICKS_PER_SEC) {
+		if (age > 1800 * TICKS_PER_SEC) {
 			ble_dbus_delete(dev);
 		}
 

@@ -2,6 +2,7 @@
 
 #include "ble-dbus.h"
 #include "victron-accharger.h"
+#include "victron-inverter.h"
 #include "victron-lsbms.h"
 #include "victron-solarsense.h"
 #include "victron-solarcharger.h"
@@ -132,6 +133,7 @@ static const struct instant_readout_handler instant_readout_handlers[] = {
 	{ RECORD_TYPE_SOLARSENSE, &solarsense_victron_device },
 	{ RECORD_TYPE_AC_CHARGER, &accharger_victron_device },
 	{ RECORD_TYPE_SOLAR_CHARGER, &solarcharger_victron_device },
+	{ RECORD_TYPE_INVERTER, &inverter_victron_device },
 };
 
 static struct VeSettingProperties key_props = {

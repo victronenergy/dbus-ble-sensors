@@ -14,6 +14,7 @@ SRCS += ruuvi.c
 SRCS += safiery.c
 SRCS += victron.c
 SRCS += victron-accharger.c
+SRCS += victron-inverter.c
 SRCS += victron-solarcharger.c
 SRCS += victron-lsbms.c
 SRCS += victron-solarsense.c

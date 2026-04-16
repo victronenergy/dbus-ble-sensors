@@ -9,6 +9,8 @@
 #include <velib/types/ve_item.h>
 #include <velib/utils/ve_item_utils.h>
 
+#include "ble-handler.h"
+
 #define align(x, a) (((x) + (a) - 1) & ~((a) - 1))
 #define alloc_size(x) align(x, sizeof(max_align_t))
 #define array_size(a) (sizeof(a) / sizeof(a[0]))
@@ -85,6 +87,8 @@ struct dev_info {
 	const struct alarm *alarms;
 	int		pdata_size;
 	int		(*init)(struct VeItem *root, const void *data);
+	int		seqnr_bits;
+	uint32_t	seqnr_window;
 };
 
 #define STATUS_OK		0
@@ -138,5 +142,8 @@ struct VeItem *ble_dbus_get_control_item(struct VeItem *droot, const char *name)
 void ble_dbus_update_alarms(struct VeItem *droot);
 int ble_dbus_update(struct VeItem *root);
 void ble_dbus_tick(void);
+
+veBool ble_dbus_check_dup(struct VeItem *root, enum data_source source);
+veBool ble_dbus_check_dup_seq(struct VeItem *root, enum data_source source, uint32_t seqnr);
 
 #endif

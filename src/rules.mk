@@ -1,5 +1,7 @@
 SRCS += ble-dbus.c
+SRCS += ble-handler.c
 SRCS += ble-scan.c
+SRCS += ble-socket.c
 SRCS += task.c
 
 SRCS += tank.c

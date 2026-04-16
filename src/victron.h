@@ -5,11 +5,14 @@
 #include <stdint.h>
 #include <bluetooth/bluetooth.h>
 
+#include "ble-dbus.h"
+#include "ble-handler.h"
+
 struct victron_device {
 	const struct dev_info *dev_info;
 	const char *def_name;
 };
 
-int victron_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len);
+int victron_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len, enum data_source source);
 
 #endif

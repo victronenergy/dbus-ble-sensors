@@ -158,7 +158,7 @@ static int victron_device_init(struct VeItem *droot, const void *data)
 	return 0;
 }
 
-int victron_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
+int victron_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len, enum data_source source)
 {
 	int i;
 	uint16_t record_type;
@@ -168,6 +168,7 @@ int victron_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
 	const struct instant_readout_handler *instant_readout_handler = NULL;
 	const struct victron_device *victron_device;
 	struct dev_info info;
+	uint16_t seqnr;
 
 	if (len < 8)
 		return -1;
@@ -197,6 +198,8 @@ int victron_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
 	info.dev_instance = 20;
 	info.init	  = victron_device_init;
 	info.pdata_size	  = sizeof(struct victron_device_data);
+	info.seqnr_bits	  = 16;
+	info.seqnr_window = 60;
 	// Because there are already GX devices in the field with an Enabled setting for a solarsense,
 	// we keep the prefix for the solarsense. For all other device we use a more generic prefix.
 	// This way, when a device switches instant readout format, it will keep its key and enabled
@@ -212,6 +215,10 @@ int victron_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
 	ble_dbus_set_name(droot, name, NAME_ORIG_DEVICE);
 
 	if (!ble_dbus_is_enabled(droot))
+		return 0;
+
+	seqnr = (buf[6] << 8) | buf[5];
+	if (ble_dbus_check_dup_seq(droot, source, seqnr))
 		return 0;
 
 	if (record_type < 0xFF00) {

@@ -303,7 +303,7 @@ static const struct dev_info mopeka_sensor = {
 	.init		= mopeka_init,
 };
 
-int mopeka_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
+int mopeka_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len, enum data_source source)
 {
 	struct VeItem *root;
 	const uint8_t *uid = buf + 5;
@@ -333,6 +333,9 @@ int mopeka_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
 	root = ble_dbus_create(dev, &mopeka_sensor, model);
 	if (!root)
 		return -1;
+
+	if (ble_dbus_check_dup(root, source))
+		return 0;
 
 	snprintf(name, sizeof(name), "Mopeka %s %02X:%02X:%02X",
 		 model->type, uid[0], uid[1], uid[2]);

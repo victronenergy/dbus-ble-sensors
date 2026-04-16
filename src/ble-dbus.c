@@ -15,7 +15,7 @@
 #include "task.h"
 
 struct device {
-	const struct dev_info	*info;
+	struct dev_info		info;
 	struct VeItem		*ctl;
 	struct VeItem		*settings_cname;
 	const void		*data;
@@ -163,7 +163,7 @@ static void *alloc_item_data(struct VeItem *item, size_t size, VeItemAboutToBeRe
 static inline const struct dev_info *get_dev_info(struct VeItem *root)
 {
 	struct device *d = get_device(root);
-	return d->info;
+	return &d->info;
 }
 
 static inline const void *get_dev_data(struct VeItem *root)
@@ -362,7 +362,7 @@ void *ble_dbus_get_pdata(struct VeItem *root)
 void *ble_dbus_get_cdata(struct VeItem *root)
 {
 	struct device *d = get_device(root);
-	return d->pdata + alloc_size(d->info->pdata_size);
+	return d->pdata + alloc_size(d->info.pdata_size);
 }
 
 struct setting_data {
@@ -463,7 +463,7 @@ static void set_names(struct VeItem *droot, enum name_source changed)
 	veBool valid_custom_name = d->names[NAME_ORIG_CUSTOM].type.tp == VE_HEAP_STR
 		&& d->names[NAME_ORIG_CUSTOM].value.CPtr
 		&& ((const char *)d->names[NAME_ORIG_CUSTOM].value.CPtr)[0];
-	veBool valid_ble_name = d->info->use_ble_name && d->names[NAME_ORIG_BLE].type.tp == VE_HEAP_STR
+	veBool valid_ble_name = d->info.use_ble_name && d->names[NAME_ORIG_BLE].type.tp == VE_HEAP_STR
 		&& d->names[NAME_ORIG_BLE].value.CPtr
 		&& ((const char *)d->names[NAME_ORIG_BLE].value.CPtr)[0];
 
@@ -529,7 +529,7 @@ static struct device *init_dev(struct VeItem *root, const struct dev_info *info,
 	struct device *d;
 
 	d = alloc_item_data(root, sizeof(*d) + pdata_size, free_device_data);
-	d->info = info;
+	d->info = *info;
 	d->data = data;
 	d->ctl = ctl;
 	return d;

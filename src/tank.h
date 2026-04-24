@@ -15,6 +15,11 @@
 
 struct tank_info {
 	uint32_t	flags;
+	const char	*raw_unit;
+	float		raw_min;
+	float		raw_max;
+	float		raw_empty;
+	float		raw_full;
 };
 
 #define TANK_FLAG_TOPDOWN	(1 << 0)

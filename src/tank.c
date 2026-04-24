@@ -141,20 +141,40 @@ static const struct alarm tank_alarms[] = {
 static void tank_init(struct VeItem *root, const void *data)
 {
 	const struct tank_info *ti = data;
+	struct dev_setting raw_settings[2];
+	struct VeSettingProperties empty;
+	struct VeSettingProperties full;
 	VeVariant v;
 
-	ble_dbus_set_str(root, "RawUnit", "cm");
+	ble_dbus_set_str(root, "RawUnit", ti->raw_unit ?: "cm");
 	ble_dbus_set_item(root, "Remaining",
 			  veVariantInvalidType(&v, VE_FLOAT), &veUnitm3);
 	ble_dbus_set_item(root, "Level",
 			  veVariantInvalidType(&v, VE_FLOAT), &veUnitNone);
 
-	if (ti->flags & TANK_FLAG_TOPDOWN)
-		ble_dbus_add_settings(root, tank_topdown_settings,
-				      array_size(tank_topdown_settings));
-	else
-		ble_dbus_add_settings(root, tank_bottomup_settings,
-				      array_size(tank_bottomup_settings));
+	if (ti->flags & TANK_FLAG_TOPDOWN) {
+		raw_settings[0] = tank_topdown_settings[0];
+		raw_settings[1] = tank_topdown_settings[1];
+	} else {
+		raw_settings[0] = tank_bottomup_settings[0];
+		raw_settings[1] = tank_bottomup_settings[1];
+	}
+
+	if (ti->raw_min != ti->raw_max) {
+		empty.type = VE_FLOAT;
+		empty.def.value.Float = ti->raw_empty;
+		empty.min.value.Float = ti->raw_min;
+		empty.max.value.Float = ti->raw_max;
+		raw_settings[0].props = &empty;
+
+		full.type = VE_FLOAT;
+		full.def.value.Float = ti->raw_full;
+		full.min.value.Float = ti->raw_min;
+		full.max.value.Float = ti->raw_max;
+		raw_settings[1].props = &full;
+	}
+
+	ble_dbus_add_settings(root, raw_settings, array_size(raw_settings));
 }
 
 static void tank_update(struct VeItem *root, const void *data)

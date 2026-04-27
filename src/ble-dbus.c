@@ -481,8 +481,14 @@ int ble_dbus_set_regs(struct VeItem *droot, const uint8_t *data, int len)
 	const struct dev_info *info = get_dev_info(droot);
 	int i;
 
-	for (i = 0; i < info->num_regs; i++)
-		set_reg(droot, &info->regs[i], data, len);
+	for (i = 0; i < info->num_regs; i++) {
+		const struct reg_info *reg = &info->regs[i];
+
+		if ((reg->flags & REG_FLAG_KEY) && reg->key != info->reg_key)
+			continue;
+
+		set_reg(droot, reg, data, len);
+	}
 
 	return 0;
 }

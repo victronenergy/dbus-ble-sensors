@@ -46,6 +46,7 @@ struct reg_info {
 	float		bias;
 	uint32_t	inval;
 	uint32_t	flags;
+	uint32_t	key;
 	int		(*xlate)(struct VeItem *root, VeVariant *val,
 				 uint64_t rawval);
 	const char	*name;
@@ -54,6 +55,7 @@ struct reg_info {
 
 #define REG_FLAG_BIG_ENDIAN	(1 << 0)
 #define REG_FLAG_INVALID	(1 << 1)
+#define REG_FLAG_KEY		(1 << 2)
 
 struct dev_class {
 	const char	*role;
@@ -74,6 +76,7 @@ struct dev_info {
 	const char	*role;
 	int		num_settings;
 	const struct dev_setting *settings;
+	uint32_t	reg_key;
 	int		num_regs;
 	const struct reg_info *regs;
 	int		num_alarms;

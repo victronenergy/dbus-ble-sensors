@@ -83,12 +83,24 @@ static const struct reg_info garnet_adv[] = {
 	},
 };
 
-static const struct tank_info garnet_tank_info = {
-	.raw_unit	= "%",
-	.raw_min	= 0,
-	.raw_max	= 100,
-	.raw_empty	= 0,
-	.raw_full	= 100,
+#define GARNET_TANK_INFO(fluid_type) {		\
+	.default_fluid_type	= fluid_type,	\
+	.raw_unit		= "%",		\
+	.raw_min		= 0,		\
+	.raw_max		= 100,		\
+	.raw_empty		= 0,		\
+	.raw_full		= 100,		\
+}
+
+static const struct tank_info garnet_tank_info[] = {
+	GARNET_TANK_INFO(FLUID_TYPE_FRESH_WATER),
+	GARNET_TANK_INFO(FLUID_TYPE_WASTE_WATER),
+	GARNET_TANK_INFO(FLUID_TYPE_BLACK_WATER),
+	GARNET_TANK_INFO(FLUID_TYPE_FRESH_WATER),
+	GARNET_TANK_INFO(FLUID_TYPE_WASTE_WATER),
+	GARNET_TANK_INFO(FLUID_TYPE_BLACK_WATER),
+	GARNET_TANK_INFO(FLUID_TYPE_WASTE_WATER),
+	GARNET_TANK_INFO(FLUID_TYPE_LPG),
 };
 
 #define GARNET_SENSOR(i) {					\
@@ -147,7 +159,7 @@ int garnet_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len, enum da
 			 garnet_names[i]);
 
 		droot = ble_dbus_create(dev, &garnet_sensor[i],
-					&garnet_tank_info);
+					&garnet_tank_info[i]);
 		if (!droot)
 			return -1;
 

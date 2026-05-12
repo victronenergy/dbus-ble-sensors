@@ -54,11 +54,11 @@ struct victron_device_data {
 };
 
 #if EXTRA_LOGGING
-static void log_raw_message(const char *tag, const struct raw_msg_entry *entry)
+static void log_raw_message(const char *tag, const char *mac, const struct raw_msg_entry *entry)
 {
 	int i;
 
-	fprintf(stderr, "%s idx=%u seq=%u len=%u: ", tag, entry->idx, entry->seqnr, entry->len);
+	fprintf(stderr, "%s (%s) idx=%u seq=%u len=%u: ", tag, mac, entry->idx, entry->seqnr, entry->len);
 	for (i = 0; i < entry->len; ++i) {
 		fprintf(stderr, "%02X ", entry->data[i]);
 	}
@@ -85,18 +85,18 @@ static void store_raw_message(struct victron_device_data *pdata,
 		pdata->raw_msg_count++;
 }
 
-static void log_last_raw_messages(struct victron_device_data *pdata, const char *tag)
+static void log_last_raw_messages(struct victron_device_data *pdata, const char *tag, const char *mac)
 {
 	if (!pdata->raw_msg_count) {
-		fprintf(stderr, "!!!!!! %s: no previous messages\n", tag);
+		fprintf(stderr, "!!!!!! %s (%s): no previous messages\n", tag, mac);
 		return;
 	}
 
 	int oldest = (pdata->raw_msg_head + 1 + RAW_MSG_LOG_WINDOW - pdata->raw_msg_count) % RAW_MSG_LOG_WINDOW;
 	for (int i = 0; i < pdata->raw_msg_count - 1; ++i) {
-		log_raw_message("raw-prev", &pdata->raw_msg_history[(oldest + i) % RAW_MSG_LOG_WINDOW]);
+		log_raw_message("raw-prev", mac, &pdata->raw_msg_history[(oldest + i) % RAW_MSG_LOG_WINDOW]);
 	}
-	log_raw_message(tag, &pdata->raw_msg_history[pdata->raw_msg_head]);
+	log_raw_message(tag, mac, &pdata->raw_msg_history[pdata->raw_msg_head]);
 	pdata->raw_msg_count = 0;
 }
 #endif
@@ -300,7 +300,7 @@ int victron_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len, enum d
 #if EXTRA_LOGGING
 		// This should not happen when using only BLE
 		store_raw_message(pdata, buf, len, seqnr);
-		log_last_raw_messages(pdata, "raw-dup");
+		log_last_raw_messages(pdata, "raw-dup ", dev);
 #endif
 		return 0;
 	}
@@ -384,10 +384,10 @@ int victron_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len, enum d
 	}
 #if EXTRA_LOGGING
 	if (should_log) {
-		log_last_raw_messages(pdata, "raw-err");
+		log_last_raw_messages(pdata, "raw-err ", dev);
 		pdata->raw_msg_capture_remaining = RAW_MSG_LOG_WINDOW;
 	} else if (pdata->raw_msg_capture_remaining > 0) {
-		log_last_raw_messages(pdata, "raw-next");
+		log_last_raw_messages(pdata, "raw-next", dev);
 		pdata->raw_msg_capture_remaining--;
 	}
 #endif

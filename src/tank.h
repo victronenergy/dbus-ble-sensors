@@ -15,6 +15,7 @@
 
 struct tank_info {
 	uint32_t	flags;
+	uint32_t	default_fluid_type;
 	const char	*raw_unit;
 	float		raw_min;
 	float		raw_max;

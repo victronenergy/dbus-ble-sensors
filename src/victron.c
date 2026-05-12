@@ -223,8 +223,6 @@ static int victron_device_init(struct VeItem *droot, const void *data)
 	const struct victron_device *victron_device = instant_readout_handler->device;
 	struct victron_device_data *pdata	    = ble_dbus_get_pdata(droot);
 	if (instant_readout_handler->record_type < 0xFF00) {
-		ble_dbus_add_control_settings(droot, victron_control_settings,
-					      array_size(victron_control_settings));
 		parse_key_setting(pdata, ble_dbus_get_control_item(droot, "Key"));
 	}
 	if (victron_device->dev_info->init)
@@ -275,6 +273,10 @@ int victron_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len, enum d
 	info.pdata_size	  = sizeof(struct victron_device_data);
 	info.seqnr_bits	  = 16;
 	info.seqnr_window = 60;
+	if (instant_readout_handler->record_type < 0xFF00) {
+		info.num_ctl_settings = array_size(victron_control_settings);
+		info.ctl_settings = victron_control_settings;
+	}
 	// Because there are already GX devices in the field with an Enabled setting for a solarsense,
 	// we keep the prefix for the solarsense. For all other device we use a more generic prefix.
 	// This way, when a device switches instant readout format, it will keep its key and enabled

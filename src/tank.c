@@ -57,14 +57,15 @@ static const struct dev_setting tank_settings[] = {
 		.onchange = tank_setting_changed,
 	},
 	{
-		.name	= "FluidType",
-		.props	= &fluid_type_props,
-	},
-	{
 		.name	= "Shape",
 		.props	= &shape_props,
 		.onchange = tank_shape_changed,
 	},
+};
+
+static const struct dev_setting tank_fluid_type_setting = {
+	.name	= "FluidType",
+	.props	= &fluid_type_props,
 };
 
 static const struct dev_setting tank_bottomup_settings[] = {
@@ -141,6 +142,8 @@ static const struct alarm tank_alarms[] = {
 static void tank_init(struct VeItem *root, const void *data)
 {
 	const struct tank_info *ti = data;
+	struct dev_setting fluid_type_setting;
+	struct VeSettingProperties fluid_type;
 	struct dev_setting raw_settings[2];
 	struct VeSettingProperties empty;
 	struct VeSettingProperties full;
@@ -151,6 +154,12 @@ static void tank_init(struct VeItem *root, const void *data)
 			  veVariantInvalidType(&v, VE_FLOAT), &veUnitm3);
 	ble_dbus_set_item(root, "Level",
 			  veVariantInvalidType(&v, VE_FLOAT), &veUnitNone);
+
+	fluid_type = fluid_type_props;
+	fluid_type.def.value.SN32 = ti->default_fluid_type;
+	fluid_type_setting = tank_fluid_type_setting;
+	fluid_type_setting.props = &fluid_type;
+	ble_dbus_add_settings(root, &fluid_type_setting, 1);
 
 	if (ti->flags & TANK_FLAG_TOPDOWN) {
 		raw_settings[0] = tank_topdown_settings[0];

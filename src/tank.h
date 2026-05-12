@@ -1,6 +1,7 @@
 #ifndef TANK_H
 #define TANK_H
 
+#define FLUID_TYPE_FUEL			0
 #define FLUID_TYPE_FRESH_WATER		1
 #define FLUID_TYPE_WASTE_WATER		2
 #define FLUID_TYPE_LIVE_WELL		3

@@ -143,7 +143,7 @@ int garnet_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
 		snprintf(dev, sizeof(dev), "%02x%02x%02x%02x%02x%02x_%d",
 			 addr->b[5], addr->b[4], addr->b[3],
 			 addr->b[2], addr->b[1], addr->b[0], i);
-		snprintf(name, sizeof(name), "SeeLeveL Soul %d %s", serial,
+		snprintf(name, sizeof(name), "SeeLeveL %d %s", serial,
 			 garnet_names[i]);
 
 		droot = ble_dbus_create(dev, &garnet_sensor[i],

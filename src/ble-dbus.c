@@ -21,6 +21,7 @@ struct device {
 	uint32_t		last_tick[DATA_SOURCE_NONE];
 	uint32_t		last_seqno;
 	enum data_source	active_source;
+	int			deferred_created;
 	char			pdata[];
 };
 
@@ -505,10 +506,36 @@ static struct device *init_dev(struct VeItem *root, const struct dev_info *info,
 	return d;
 }
 
+static int deferred_create(struct VeItem *droot)
+{
+	const struct dev_info *info = get_dev_info(droot);
+	const struct dev_class *dclass = get_dev_class(info);
+	struct device *d = veItemCtx(droot)->ptr;
+
+	if (d->deferred_created)
+		return 0;
+
+	/* Add settings and alarms */
+	ble_dbus_add_settings(droot, dclass->settings, dclass->num_settings);
+	ble_dbus_add_alarms(droot, dclass->alarms, dclass->num_alarms);
+
+	if (dclass->init)
+		dclass->init(droot, get_dev_data(droot));
+
+	ble_dbus_add_settings(droot, info->settings, info->num_settings);
+	ble_dbus_add_alarms(droot, info->alarms, info->num_alarms);
+
+	if (info->init)
+		info->init(droot, get_dev_data(droot));
+
+	d->deferred_created = 1;
+
+	return 0;
+}
+
 struct VeItem *ble_dbus_create(const char *dev, const struct dev_info *info,
 			       const void *data)
 {
-	const struct dev_class *dclass = get_dev_class(info);
 	struct VeItem *droot;
 	struct VeItem *settings = get_settings();
 	struct VeItem *ctl = get_control();
@@ -557,21 +584,12 @@ struct VeItem *ble_dbus_create(const char *dev, const struct dev_info *info,
 
 	create_regs(droot);
 
-	ble_dbus_add_settings(droot, dclass->settings, dclass->num_settings);
-	ble_dbus_add_alarms(droot, dclass->alarms, dclass->num_alarms);
-
-	if (dclass->init)
-		dclass->init(droot, data);
-
-	ble_dbus_add_settings(droot, info->settings, info->num_settings);
-	ble_dbus_add_alarms(droot, info->alarms, info->num_alarms);
-
-	if (info->init)
-		info->init(droot, data);
-
 	veItemSendPendingChanges(ctl);
 
 out:
+	if (ble_dbus_is_enabled(droot))
+		deferred_create(droot);
+
 	veItemLocalSet(droot, veVariantUn32(&val, tick));
 
 	return droot;

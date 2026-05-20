@@ -501,8 +501,8 @@ struct VeItem *ble_dbus_create(const char *dev, const struct dev_info *info,
 	init_dev(droot, info, data, dev_ctl);
 
 	snprintf(path, sizeof(path), "Settings/Devices/%s", veItemId(dev_ctl));
-	ena = veItemCreateSettingsProxy(settings, path, dev_ctl, "Enabled", veVariantFmt,
- 					&veUnitNone, &bool_val);
+	ena = veItemCreateSettingsProxySync(settings, path, dev_ctl, "Enabled", veVariantFmt,
+ 					    &veUnitNone, &bool_val);
 	veItemCtx(ena)->ptr = droot;
 	veItemSetChanged(ena, on_enabled_changed);
 	ble_dbus_create_item(dev_ctl, "Name", veVariantInvalidType(&val, VE_HEAP_STR), &veUnitIndex);

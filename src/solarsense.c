@@ -149,7 +149,7 @@ static const struct alarm solarsense_alarms[] = {
 };
 
 static const struct dev_info solarsense_sensor = {
-	.product_id	= VE_PROD_ID_SOLAR_SENSE_750,
+	.unknown_name	= "Unknown SolarSense",
 	.dev_instance	= 20,
 	.dev_prefix	= "solarsense_",
 	.role		= "meteo",
@@ -164,6 +164,7 @@ int solarsense_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
 	struct VeItem *root;
 	char name[24];
 	char dev[16];
+	struct dev_info info = solarsense_sensor;
 
 	if (len < 22)
 		return -1;
@@ -171,11 +172,12 @@ int solarsense_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
 	if ( buf[0] != 0x10 || buf[4] != 0xff || buf[7] != 0x01 )
 		return -1;
 
+	info.product_id = bt_get_le16(&buf[2]);
 	snprintf(dev, sizeof(dev), "%02x%02x%02x%02x%02x%02x",
 		 addr->b[5], addr->b[4], addr->b[3],
 		 addr->b[2], addr->b[1], addr->b[0]);
 
-	root = ble_dbus_create(dev, &solarsense_sensor, NULL);
+	root = ble_dbus_create(dev, &info, NULL);
 	if (!root)
 		return -1;
 

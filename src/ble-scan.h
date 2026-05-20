@@ -5,7 +5,7 @@
 #define MFG_ID_NORDIC	0x0059
 #define MFG_ID_RUUVI	0x0499
 #define MFG_ID_SAFIERY	0x0067
-#define MFG_ID_SOLARSENSE	0x02E1
+#define MFG_ID_VICTRON	0x02E1
 #define MFG_ID_GARNET	0x0CC0
 
 int ble_scan_open(void);

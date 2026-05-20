@@ -74,6 +74,7 @@ struct dev_info {
 	const struct dev_class *dev_class;
 	uint16_t	product_id;
 	const char	*unknown_name;
+	veBool		use_ble_name;
 	uint16_t	dev_instance;
 	const char	*dev_prefix;
 	const char	*role;
@@ -92,6 +93,14 @@ struct dev_info {
 
 #define STATUS_OK		0
 #define STATUS_BATT_LOW		5
+
+enum name_source {
+	NAME_ORIG_BLE,
+	NAME_ORIG_DEVICE,
+	NAME_ORIG_CUSTOM,
+
+	NAME_ORIG_NONE,
+};
 
 extern const VeVariantUnitFmt veUnitHectoPascal;
 extern const VeVariantUnitFmt veUnitG2Dec;
@@ -118,7 +127,7 @@ int ble_dbus_add_alarms(struct VeItem *droot, const struct alarm *alarms,
 			int num_alarms);
 int ble_dbus_is_enabled(struct VeItem *root);
 int ble_dbus_set_regs(struct VeItem *root, const uint8_t *data, int len);
-int ble_dbus_set_name(struct VeItem *root, const char *name);
+int ble_dbus_set_name(struct VeItem *root, const char *name, enum name_source source);
 struct VeItem *ble_dbus_create_item(struct VeItem *droot, const char *path, VeVariant *val,
 				    const void *format);
 struct VeItem *ble_dbus_create_str(struct VeItem *root, const char *path, const char *str);

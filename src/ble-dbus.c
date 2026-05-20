@@ -17,11 +17,15 @@
 struct device {
 	struct dev_info		info;
 	struct VeItem		*ctl;
+	struct VeItem		*settings_cname;
 	const void		*data;
 	uint32_t		last_tick[DATA_SOURCE_NONE];
 	uint32_t		last_seqno;
 	enum data_source	active_source;
 	int			deferred_created;
+	VeVariant		names[NAME_ORIG_NONE];
+	enum name_source	cname_source;
+	enum name_source	dname_source;
 	char			pdata[];
 };
 
@@ -34,11 +38,6 @@ const VeVariantUnitFmt veUnitPPM = { 0, "ppm" };
 const VeVariantUnitFmt veUnitUgM3 = { 1, "ug/m3" };
 const VeVariantUnitFmt veUnitLux = { 2, "lux" };
 const VeVariantUnitFmt veUnitIndex = { 0, "" };
-
-static struct VeSettingProperties empty_string = {
-	.type = VE_HEAP_STR,
-	.def.value.Ptr = "",
-};
 
 static struct VeSettingProperties bool_val = {
 	.type = VE_SN32,
@@ -188,7 +187,7 @@ struct VeItem *ble_dbus_get_item(struct VeItem *root, const char *path)
 	return veItemByUid(root, path);
 }
 
-static void free_item_data(struct VeItem *item)
+static void free_setting_data(struct VeItem *item)
 {
 	free(veItemCtx(item)->ptr);
 }
@@ -198,12 +197,23 @@ static inline struct device *get_device(struct VeItem *root)
 	return veItemCtx(root)->ptr;
 }
 
-static void *alloc_item_data(struct VeItem *item, size_t size)
+static void free_device_data(struct VeItem *item)
+{
+	struct device *d = get_device(item);
+
+	for (int i = 0; i < NAME_ORIG_NONE; i++) {
+		veVariantFree(&d->names[i]);
+	}
+
+	free(d);
+}
+
+static void *alloc_item_data(struct VeItem *item, size_t size, VeItemAboutToBeRemoved *fun)
 {
 	void *p = calloc(1, size);
 
 	veItemCtx(item)->ptr = p;
-	veItemSetAboutToRemoved(item, free_item_data);
+	veItemSetAboutToRemoved(item, fun);
 
 	return p;
 }
@@ -468,7 +478,7 @@ int ble_dbus_add_settings(struct VeItem *droot,
 			ds->name, veVariantFmt, &veUnitNone, ds->props);
 
 		if (ds->onchange) {
-			d = alloc_item_data(item, sizeof(*d));
+			d = alloc_item_data(item, sizeof(*d), free_setting_data);
 			d->root = droot;
 			d->onchange = ds->onchange;
 			veItemSetChanged(item, on_setting_changed);
@@ -476,6 +486,57 @@ int ble_dbus_add_settings(struct VeItem *droot,
 	}
 
 	return 0;
+}
+
+/* This function stores a name in the device's names array */
+static void store_name(struct VeItem *droot, enum name_source source, VeVariant *val)
+{
+	struct device *d = get_device(droot);
+
+	veVariantFree(&d->names[source]);
+	veVariantHeapStr(&d->names[source], (const char *)val->value.CPtr);
+}
+
+/* This function determines the control and device Name and CustomName
+ * base on the stored names */
+static void set_names(struct VeItem *droot, enum name_source changed)
+{
+	// We need to determine the name to use for:
+	// /CustomName, ..control../CustomName
+	// 		use_ble_name: CUSTOM_NAME, BLE_NAME, NONE
+	// 		!use_ble_name: CUSTOM_NAME, NONE
+	// /DeviceName, ..control../Name
+	// 		use_ble_name: BLE_NAME, DEVICE_NAME
+	// 		!use_ble_name: DEVICE_NAME
+
+	struct device *d = get_device(droot);
+	struct VeItem *ctl = get_dev_control(droot);
+	VeVariant val;
+	const char *s;
+	veBool valid_custom_name = d->names[NAME_ORIG_CUSTOM].type.tp == VE_HEAP_STR
+		&& d->names[NAME_ORIG_CUSTOM].value.CPtr
+		&& ((const char *)d->names[NAME_ORIG_CUSTOM].value.CPtr)[0];
+	veBool valid_ble_name = d->info.use_ble_name && d->names[NAME_ORIG_BLE].type.tp == VE_HEAP_STR
+		&& d->names[NAME_ORIG_BLE].value.CPtr
+		&& ((const char *)d->names[NAME_ORIG_BLE].value.CPtr)[0];
+
+	enum name_source cn_source = valid_custom_name ? NAME_ORIG_CUSTOM
+				      : valid_ble_name ? NAME_ORIG_BLE
+						       : NAME_ORIG_NONE;
+	enum name_source dn_source = valid_ble_name ? NAME_ORIG_BLE : NAME_ORIG_DEVICE;
+
+	if (d->cname_source != cn_source || (d->cname_source == changed && changed != NAME_ORIG_NONE)) {
+		s = cn_source != NAME_ORIG_NONE ? (const char *)d->names[cn_source].value.CPtr : "";
+		ble_dbus_set_item(droot, "CustomName", veVariantHeapStr(&val, s));
+		ble_dbus_set_item(ctl, "CustomName", veVariantHeapStr(&val, s));
+		d->cname_source = cn_source;
+	}
+	if (d->dname_source != dn_source || (d->dname_source == changed && changed != NAME_ORIG_NONE)) {
+		s = (const char *)d->names[dn_source].value.CPtr;
+		ble_dbus_set_item(droot, "DeviceName", veVariantHeapStr(&val, s));
+		ble_dbus_set_item(ctl, "Name", veVariantHeapStr(&val, s));
+		d->dname_source = dn_source;
+	}
 }
 
 static void on_enabled_changed(struct VeItem *ena)
@@ -495,6 +556,24 @@ static void on_enabled_changed(struct VeItem *ena)
 	veDbusDisconnect(dbus);
 }
 
+static void on_customname_setting_changed(struct VeItem *cn)
+{
+	struct VeItem *droot = veItemCtx(cn)->ptr;
+	VeVariant val;
+
+	veItemLocalValue(cn, &val);
+	if (val.type.tp != VE_HEAP_STR)
+		return;
+	ble_dbus_set_name(droot, (const char *)val.value.CPtr, NAME_ORIG_CUSTOM);
+}
+
+static veBool on_customname_set(struct VeItem *item, void *ctx, VeVariant *variant)
+{
+	// Forward the set name to the setting_custom_name
+	struct VeItem *setting_custom_name = ctx;
+	return veItemSet(setting_custom_name, variant);
+}
+
 static struct device *init_dev(struct VeItem *root, const struct dev_info *info,
 			       const void *data, struct VeItem *ctl)
 {
@@ -502,7 +581,7 @@ static struct device *init_dev(struct VeItem *root, const struct dev_info *info,
 	int pdata_size = alloc_size(info->pdata_size) + dclass->pdata_size;
 	struct device *d;
 
-	d = alloc_item_data(root, sizeof(*d) + pdata_size);
+	d = alloc_item_data(root, sizeof(*d) + pdata_size, free_device_data);
 	d->info = *info;
 	d->data = data;
 	d->ctl = ctl;
@@ -546,7 +625,7 @@ struct VeItem *ble_dbus_create(const char *dev, const struct dev_info *info,
 	struct VeItem *ctl = get_control();
 	struct VeItem *dev_ctl;
 	struct device *d;
-	struct VeItem *ena;
+	struct VeItem *item;
 	VeVariant val;
 	char path[64];
 	char name[64];
@@ -560,20 +639,30 @@ struct VeItem *ble_dbus_create(const char *dev, const struct dev_info *info,
 	droot = veItemGetOrCreateUid(devices, dev);
 	d = init_dev(droot, info, data, dev_ctl);
 
+	snprintf(path, sizeof(path), "Settings/Devices/%s/CustomName", veItemId(dev_ctl));
+	d->settings_cname = veItemGetOrCreateUid(settings, path);
+	veDBusAddLocalSettingSync(d->settings_cname, veVariantStr(&val, ""), NULL, NULL);
+	veItemCtx(d->settings_cname)->ptr = droot;
+	veItemSetChanged(d->settings_cname, on_customname_setting_changed);
+	veItemLocalValue(d->settings_cname, &val);
+	store_name(droot, NAME_ORIG_CUSTOM, &val);
+
 	snprintf(path, sizeof(path), "Settings/Devices/%s", veItemId(dev_ctl));
-	ena = veItemCreateSettingsProxySync(settings, path, dev_ctl, "Enabled", veVariantFmt,
- 					    &veUnitNone, &bool_val);
-	veItemCtx(ena)->ptr = droot;
-	veItemSetChanged(ena, on_enabled_changed);
+	item = veItemCreateSettingsProxySync(settings, path, dev_ctl, "Enabled", veVariantFmt,
+ 					     &veUnitNone, &bool_val);
+	veItemCtx(item)->ptr = droot;
+	veItemSetChanged(item, on_enabled_changed);
 	ble_dbus_create_item(dev_ctl, "Age", veVariantSn32(&val, 0), &veUnitIndex);
 	ble_dbus_create_item(dev_ctl, "Name", veVariantInvalidType(&val, VE_HEAP_STR), &veUnitIndex);
+	item = ble_dbus_create_item(dev_ctl, "CustomName",
+			veVariantInvalidType(&val, VE_HEAP_STR), &veUnitIndex);
+	veItemSetSetter(item, on_customname_set, d->settings_cname);
 	veItemCreateProductId(dev_ctl, info->product_id);
 
-	veItemCreateSettingsProxy(settings, path, droot, "CustomName",
-				  veVariantFmt, &veUnitNone, &empty_string);
-
-	ble_dbus_create_item(droot, "DeviceName", veVariantInvalidType(&val, VE_HEAP_STR),
-			     &veUnitIndex);
+	ble_dbus_create_item(droot, "DeviceName", veVariantInvalidType(&val, VE_HEAP_STR), &veUnitIndex);
+	item = ble_dbus_create_item(droot, "CustomName",
+			veVariantInvalidType(&val, VE_HEAP_STR), &veUnitIndex);
+	veItemSetSetter(item, on_customname_set, d->settings_cname);
 
 	ble_dbus_create_str(droot, "Mgmt/ProcessName", pltProgramName());
 	ble_dbus_create_str(droot, "Mgmt/ProcessVersion", VERSION);
@@ -591,6 +680,7 @@ struct VeItem *ble_dbus_create(const char *dev, const struct dev_info *info,
 
 	create_regs(droot);
 
+	set_names(droot, NAME_ORIG_NONE);
 	veItemSendPendingChanges(ctl);
 
 out:
@@ -665,23 +755,18 @@ int ble_dbus_set_regs(struct VeItem *droot, const uint8_t *data, int len)
 	return 0;
 }
 
-int ble_dbus_set_name(struct VeItem *droot, const char *name)
+int ble_dbus_set_name(struct VeItem *droot, const char *name, enum name_source source)
 {
-	const char *dname = name;
-	struct VeItem *cname;
-	VeVariant v;
+	struct device *d = get_device(droot);
+	VeVariant val;
 
-	cname = veItemByUid(droot, "CustomName");
+	// Check if it is equal to the current name for this source, if so do nothing
+	if (veVariantIsEqual(&d->names[source], veVariantStr(&val, name)))
+		return 0;
 
-	if (veItemIsValid(cname)) {
-		veItemLocalValue(cname, &v);
-		dname = v.value.Ptr;
-		if (!dname[0])
-			dname = name;
-	}
-
-	ble_dbus_set_str(droot, "DeviceName", name);
-	ble_dbus_set_str(get_dev_control(droot), "Name", dname);
+	store_name(droot, source, &val);
+	set_names(droot, source);
+	veItemSendPendingChanges(d->ctl);
 
 	return 0;
 }
@@ -900,10 +985,13 @@ void ble_dbus_send_pending_changes(struct VeItem *root)
 
 static void ble_dbus_delete(struct VeItem *droot)
 {
-	struct VeItem *ctl_item = get_dev_control(droot);
+	struct device *d = get_device(droot);
 	struct VeDbus *dbus;
 
-	veItemDeleteBranch(ctl_item);
+	veItemCtx(d->settings_cname)->ptr = NULL;
+	veItemSetChanged(d->settings_cname, NULL);
+
+	veItemDeleteBranch(d->ctl);
 
 	dbus = veItemDbus(droot);
 	if (dbus)

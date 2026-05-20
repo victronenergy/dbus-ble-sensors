@@ -115,7 +115,7 @@ int safiery_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len, enum d
 
 	snprintf(name, sizeof(name), "StarTank %02X:%02X:%02X",
 		uid[0], uid[1], uid[2]);
-	ble_dbus_set_name(root, name);
+	ble_dbus_set_name(root, name, NAME_ORIG_DEVICE);
 
 	if (!ble_dbus_is_enabled(root))
 		return 0;

@@ -78,6 +78,7 @@ int victron_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len, enum d
 
 	info		  = *victron_device->dev_info;
 	info.product_id	  = bt_get_le16(&buf[2]);
+	info.use_ble_name = veTrue;
 	info.dev_instance = 20;
 	info.init	  = victron_device_init;
 	info.seqnr_bits	  = 16;
@@ -94,7 +95,7 @@ int victron_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len, enum d
 		return -1;
 
 	snprintf(name, sizeof(name), "%s %02X%02X", victron_device->def_name, addr->b[1], addr->b[0]);
-	ble_dbus_set_name(droot, name);
+	ble_dbus_set_name(droot, name, NAME_ORIG_DEVICE);
 
 	if (!ble_dbus_is_enabled(droot))
 		return 0;

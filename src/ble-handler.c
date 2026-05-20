@@ -39,7 +39,7 @@ void ble_handle_name(const bdaddr_t *bdaddr, const uint8_t *buf, int len)
 
 	memcpy(name, buf, len);
 	name[len] = 0;
-	ble_dbus_set_name(droot, name);
+	ble_dbus_set_name(droot, name, NAME_ORIG_BLE);
 }
 
 int ble_handle_mfg(const bdaddr_t *bdaddr, uint16_t mfg, const uint8_t *buf, int len,

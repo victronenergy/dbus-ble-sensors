@@ -193,6 +193,11 @@ static void free_item_data(struct VeItem *item)
 	free(veItemCtx(item)->ptr);
 }
 
+static inline struct device *get_device(struct VeItem *root)
+{
+	return veItemCtx(root)->ptr;
+}
+
 static void *alloc_item_data(struct VeItem *item, size_t size)
 {
 	void *p = calloc(1, size);
@@ -205,19 +210,19 @@ static void *alloc_item_data(struct VeItem *item, size_t size)
 
 static inline const struct dev_info *get_dev_info(struct VeItem *root)
 {
-	struct device *d = veItemCtx(root)->ptr;
+	struct device *d = get_device(root);
 	return &d->info;
 }
 
 static inline const void *get_dev_data(struct VeItem *root)
 {
-	struct device *d = veItemCtx(root)->ptr;
+	struct device *d = get_device(root);
 	return d->data;
 }
 
 static inline struct VeItem *get_dev_control(struct VeItem *root)
 {
-	struct device *d = veItemCtx(root)->ptr;
+	struct device *d = get_device(root);
 	return d->ctl;
 }
 
@@ -409,13 +414,13 @@ int ble_dbus_is_enabled(struct VeItem *droot)
 
 void *ble_dbus_get_pdata(struct VeItem *root)
 {
-	struct device *d = veItemCtx(root)->ptr;
+	struct device *d = get_device(root);
 	return d->pdata;
 }
 
 void *ble_dbus_get_cdata(struct VeItem *root)
 {
-	struct device *d = veItemCtx(root)->ptr;
+	struct device *d = get_device(root);
 	return d->pdata + alloc_size(d->info.pdata_size);
 }
 
@@ -510,7 +515,7 @@ static int deferred_create(struct VeItem *droot)
 {
 	const struct dev_info *info = get_dev_info(droot);
 	const struct dev_class *dclass = get_dev_class(info);
-	struct device *d = veItemCtx(droot)->ptr;
+	struct device *d = get_device(droot);
 
 	if (d->deferred_created)
 		return 0;
@@ -835,7 +840,7 @@ int ble_dbus_update(struct VeItem *droot)
 
 static void set_active_source(struct VeItem *root, enum data_source source)
 {
-	struct device *d = veItemCtx(root)->ptr;
+	struct device *d = get_device(root);
 	if (source == d->active_source)
 		return;
 
@@ -845,7 +850,7 @@ static void set_active_source(struct VeItem *root, enum data_source source)
 
 veBool ble_dbus_check_dup(struct VeItem *root, enum data_source source)
 {
-	struct device *d = veItemCtx(root)->ptr;
+	struct device *d = get_device(root);
 	// When it comes from the same source as the last active one, it is never considered a duplicate
 	d->last_tick[source] = tick;
 	if (source == d->active_source)
@@ -868,7 +873,7 @@ veBool ble_dbus_check_dup(struct VeItem *root, enum data_source source)
 
 veBool ble_dbus_check_dup_seq(struct VeItem *root, enum data_source source, uint32_t seqnr)
 {
-	struct device *d     = veItemCtx(root)->ptr;
+	struct device *d     = get_device(root);
 	d->last_tick[source] = tick;
 
 	if (d->active_source != DATA_SOURCE_NONE) {

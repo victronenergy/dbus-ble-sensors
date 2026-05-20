@@ -15,7 +15,7 @@
 #include "task.h"
 
 struct device {
-	const struct dev_info	*info;
+	struct dev_info		info;
 	struct VeItem		*ctl;
 	const void		*data;
 	char			pdata[];
@@ -191,7 +191,7 @@ static void *alloc_item_data(struct VeItem *item, size_t size)
 static inline const struct dev_info *get_dev_info(struct VeItem *root)
 {
 	struct device *d = veItemCtx(root)->ptr;
-	return d->info;
+	return &d->info;
 }
 
 static inline const void *get_dev_data(struct VeItem *root)
@@ -391,7 +391,7 @@ void *ble_dbus_get_pdata(struct VeItem *root)
 void *ble_dbus_get_cdata(struct VeItem *root)
 {
 	struct device *d = veItemCtx(root)->ptr;
-	return d->pdata + alloc_size(d->info->pdata_size);
+	return d->pdata + alloc_size(d->info.pdata_size);
 }
 
 struct setting_data {
@@ -473,7 +473,7 @@ static void init_dev(struct VeItem *root, const struct dev_info *info,
 	struct device *d;
 
 	d = alloc_item_data(root, sizeof(*d) + pdata_size);
-	d->info = info;
+	d->info = *info;
 	d->data = data;
 	d->ctl = ctl;
 }

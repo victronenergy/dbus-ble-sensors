@@ -14,8 +14,11 @@ DEFINES += DBUS
 DBUS_CFLAGS := $(shell pkg-config --cflags dbus-1)
 DBUS_LIBS := $(shell pkg-config --libs dbus-1)
 
-override CFLAGS += $(DBUS_CFLAGS) -DVERSION=\"$(VERSION)\" -Werror
-$T_LIBS += -lbluetooth -lpthread -levent -levent_pthreads -ldl -lm $(DBUS_LIBS)
+OPENSSL_CFLAGS := $(shell pkg-config --cflags openssl)
+OPENSSL_LIBS := $(shell pkg-config --libs openssl)
+
+override CFLAGS += $(DBUS_CFLAGS) $(OPENSSL_CFLAGS) -DVERSION=\"$(VERSION)\" -Werror
+$T_LIBS += -lbluetooth -lpthread -levent -levent_pthreads -ldl -lm $(DBUS_LIBS) $(OPENSSL_LIBS)
 
 INCLUDES += src
 INCLUDES += ext/velib/inc

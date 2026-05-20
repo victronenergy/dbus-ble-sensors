@@ -71,6 +71,7 @@ struct dev_class {
 struct dev_info {
 	const struct dev_class *dev_class;
 	uint16_t	product_id;
+	const char	*unknown_name;
 	uint16_t	dev_instance;
 	const char	*dev_prefix;
 	const char	*role;

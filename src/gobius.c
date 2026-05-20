@@ -82,7 +82,7 @@ static const struct dev_info gobius_sensor = {
 	.init		= gobius_init,
 };
 
-int gobius_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
+int gobius_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len, enum data_source source)
 {
 	struct VeItem *root;
 	const uint8_t *uid;
@@ -114,6 +114,9 @@ int gobius_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
 	ble_dbus_set_name(root, name);
 
 	if (!ble_dbus_is_enabled(root))
+		return 0;
+
+	if (ble_dbus_check_dup(root, source))
 		return 0;
 
 	/* Firmware version at payload offsets 7..9 */

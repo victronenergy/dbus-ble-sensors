@@ -135,7 +135,7 @@ static const char *garnet_names[] = {
 	"LPG",
 };
 
-int garnet_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
+int garnet_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len, enum data_source source)
 {
 	struct VeItem *droot;
 	char name[32];
@@ -166,6 +166,9 @@ int garnet_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
 		ble_dbus_set_name(droot, name);
 
 		if (!ble_dbus_is_enabled(droot))
+			continue;
+
+		if (ble_dbus_check_dup(droot, source))
 			continue;
 
 		ble_dbus_set_regs(droot, buf, len);

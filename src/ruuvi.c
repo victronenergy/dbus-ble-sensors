@@ -137,6 +137,8 @@ static const struct dev_info ruuvi_tag = {
 	.regs		= ruuvi_rawv2,
 	.num_alarms	= array_size(ruuvi_alarms),
 	.alarms		= ruuvi_alarms,
+	.seqnr_bits	= 16,
+	.seqnr_window	= 100,
 };
 
 static int ruuvi_xlate_9bit(struct VeItem *root, VeVariant *val, uint64_t rv,
@@ -269,9 +271,11 @@ static const struct dev_info ruuvi_air = {
 	.dev_prefix	= "ruuvi_",
 	.num_regs	= array_size(ruuvi_format6),
 	.regs		= ruuvi_format6,
+	.seqnr_bits	= 8,
+	.seqnr_window	= 30,
 };
 
-int ruuvi_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
+int ruuvi_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len, enum data_source source)
 {
 	const uint8_t *mac = addr->b;
 	const struct dev_info *info;
@@ -279,6 +283,7 @@ int ruuvi_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
 	char name[16];
 	char dev[16];
 	char *label;
+	uint16_t seqno;
 
 	if (len < 1)
 		return -1;
@@ -290,6 +295,7 @@ int ruuvi_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
 
 		info = &ruuvi_tag;
 		label = "Ruuvi";
+		seqno = (buf[16] << 8) | buf[17];
 		break;
 
 	case 6:			/* Format 6 */
@@ -298,6 +304,7 @@ int ruuvi_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
 
 		info = &ruuvi_air;
 		label = "Ruuvi Air";
+		seqno = buf[15];
 		break;
 
 	default:
@@ -310,6 +317,9 @@ int ruuvi_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
 	root = ble_dbus_create(dev, info, NULL);
 	if (!root)
 		return -1;
+
+	if (ble_dbus_check_dup_seq(root, source, seqno))
+		return 0;
 
 	snprintf(name, sizeof(name), "%s %02X%02X", label, mac[1], mac[0]);
 	ble_dbus_set_name(root, name);

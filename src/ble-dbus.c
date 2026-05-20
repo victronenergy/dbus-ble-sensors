@@ -18,6 +18,9 @@ struct device {
 	struct dev_info		info;
 	struct VeItem		*ctl;
 	const void		*data;
+	uint32_t		last_tick[DATA_SOURCE_NONE];
+	uint32_t		last_seqno;
+	enum data_source	active_source;
 	char			pdata[];
 };
 
@@ -42,6 +45,17 @@ static struct VeSettingProperties bool_val = {
 	.min.value.SN32 = 0,
 	.max.value.SN32 = 1,
 };
+
+static struct VeSettingProperties dedup_window_props = {
+	.type		= VE_SN32,
+	.def.value.SN32 = 2000,
+	.min.value.SN32 = 0,
+	.max.value.SN32 = 10000,
+};
+
+static int dedup_window_ticks = 2 * TICKS_PER_SEC;
+
+static const char *data_source_str[] = { "Bluetooth LE", "BLE Gateway", "None" };
 
 static veBool readOnlySetValue(struct VeItem *item, void *ctx, VeVariant *variant)
 {
@@ -343,11 +357,22 @@ static void on_contscan_changed(struct VeItem *cont)
 		ble_scan_continuous(val.value.SN32);
 }
 
+static void on_dedup_window_changed(struct VeItem *item)
+{
+	VeVariant val;
+
+	veItemLocalValue(item, &val);
+	if (veVariantIsValid(&val)) {
+		dedup_window_ticks = (val.value.SN32 * TICKS_PER_SEC) / 1000;
+	}
+}
+
 int ble_dbus_init(void)
 {
 	struct VeItem *settings = get_settings();
 	struct VeItem *ctl = get_control();
 	struct VeItem *cont;
+	struct VeItem *dedup;
 
 	devices = veItemAlloc(NULL, "");
 	if (!devices)
@@ -356,6 +381,10 @@ int ble_dbus_init(void)
 	cont = veItemCreateSettingsProxy(settings, "Settings/BleSensors",
 		ctl, "ContinuousScan", veVariantFmt, &veUnitNone, &bool_val);
 	veItemSetChanged(cont, on_contscan_changed);
+
+	dedup = veItemCreateSettingsProxy(settings, "Settings/BleSensors", ctl, "DeduplicationWindow",
+					  veVariantFmt, &veUnitNone, &dedup_window_props);
+	veItemSetChanged(dedup, on_dedup_window_changed);
 
 	return 0;
 }
@@ -465,8 +494,8 @@ static void on_enabled_changed(struct VeItem *ena)
 	veDbusDisconnect(dbus);
 }
 
-static void init_dev(struct VeItem *root, const struct dev_info *info,
-		     const void *data, struct VeItem *ctl)
+static struct device *init_dev(struct VeItem *root, const struct dev_info *info,
+			       const void *data, struct VeItem *ctl)
 {
 	const struct dev_class *dclass = get_dev_class(info);
 	int pdata_size = alloc_size(info->pdata_size) + dclass->pdata_size;
@@ -476,6 +505,9 @@ static void init_dev(struct VeItem *root, const struct dev_info *info,
 	d->info = *info;
 	d->data = data;
 	d->ctl = ctl;
+	d->active_source = DATA_SOURCE_NONE;
+
+	return d;
 }
 
 struct VeItem *ble_dbus_create(const char *dev, const struct dev_info *info,
@@ -486,6 +518,7 @@ struct VeItem *ble_dbus_create(const char *dev, const struct dev_info *info,
 	struct VeItem *settings = get_settings();
 	struct VeItem *ctl = get_control();
 	struct VeItem *dev_ctl;
+	struct device *d;
 	struct VeItem *ena;
 	VeVariant val;
 	char path[64];
@@ -498,7 +531,7 @@ struct VeItem *ble_dbus_create(const char *dev, const struct dev_info *info,
 	snprintf(name, sizeof(name), "Devices/%s%s", info->dev_prefix, dev);
 	dev_ctl = veItemGetOrCreateUid(ctl, name);
 	droot = veItemGetOrCreateUid(devices, dev);
-	init_dev(droot, info, data, dev_ctl);
+	d = init_dev(droot, info, data, dev_ctl);
 
 	snprintf(path, sizeof(path), "Settings/Devices/%s", veItemId(dev_ctl));
 	ena = veItemCreateSettingsProxySync(settings, path, dev_ctl, "Enabled", veVariantFmt,
@@ -512,6 +545,20 @@ struct VeItem *ble_dbus_create(const char *dev, const struct dev_info *info,
 
 	ble_dbus_create_item(droot, "DeviceName", veVariantInvalidType(&val, VE_HEAP_STR),
 			     &veUnitIndex);
+
+	ble_dbus_create_str(droot, "Mgmt/ProcessName", pltProgramName());
+	ble_dbus_create_str(droot, "Mgmt/ProcessVersion", VERSION);
+	ble_dbus_create_str(droot, "Mgmt/Connection", data_source_str[d->active_source]);
+	ble_dbus_create_int(droot, "Connected", 1);
+	ble_dbus_create_int(droot, "Devices/0/ProductId", info->product_id);
+	ble_dbus_create_int(droot, "Devices/0/DeviceInstance", 0);
+	ble_dbus_create_int(droot, "DeviceInstance", 0);
+	ble_dbus_create_str(droot, "ProductName",
+			    veProductGetName(info->product_id)
+			    ?: info->unknown_name
+			    ?: "Unknown product");
+	ble_dbus_create_int(droot, "Status", 0);
+	veItemCreateProductId(droot, info->product_id);
 
 	create_regs(droot);
 
@@ -564,19 +611,8 @@ static int ble_dbus_connect(struct VeItem *droot)
 	if (dev_instance < 0)
 		return -1;
 
-	ble_dbus_create_str(droot, "Mgmt/ProcessName", pltProgramName());
-	ble_dbus_create_str(droot, "Mgmt/ProcessVersion", VERSION);
-	ble_dbus_create_str(droot, "Mgmt/Connection", "Bluetooth LE");
-	ble_dbus_create_int(droot, "Connected", 1);
-	ble_dbus_create_int(droot, "Devices/0/ProductId", info->product_id);
-	ble_dbus_create_int(droot, "Devices/0/DeviceInstance", dev_instance);
-	ble_dbus_create_int(droot, "DeviceInstance", dev_instance);
-	ble_dbus_create_str(droot, "ProductName",
-			    veProductGetName(info->product_id)
-			    ?: info->unknown_name
-			    ?: "Unknown product");
-	ble_dbus_create_int(droot, "Status", 0);
-	veItemCreateProductId(droot, info->product_id);
+	ble_dbus_set_int(droot, "Devices/0/DeviceInstance", dev_instance);
+	ble_dbus_set_int(droot, "DeviceInstance", dev_instance);
 
 	snprintf(name, sizeof(name), "com.victronenergy.%s.%s", role, dev_id);
 
@@ -780,6 +816,66 @@ int ble_dbus_update(struct VeItem *droot)
 	veItemSendPendingChanges(droot);
 
 	return 0;
+}
+
+static void set_active_source(struct VeItem *root, enum data_source source)
+{
+	struct device *d = veItemCtx(root)->ptr;
+	if (source == d->active_source)
+		return;
+
+	d->active_source = source;
+	ble_dbus_set_str(root, "Mgmt/Connection", data_source_str[d->active_source]);
+}
+
+veBool ble_dbus_check_dup(struct VeItem *root, enum data_source source)
+{
+	struct device *d = veItemCtx(root)->ptr;
+	// When it comes from the same source as the last active one, it is never considered a duplicate
+	d->last_tick[source] = tick;
+	if (source == d->active_source)
+		return veFalse;
+
+	if (source == DATA_SOURCE_BLE) {
+		// When it is received via BLE, it is never considered a duplicate
+		set_active_source(root, source);
+		return veFalse;
+	} else if (!d->last_tick[DATA_SOURCE_BLE]
+		   || tick - d->last_tick[DATA_SOURCE_BLE] > dedup_window_ticks) {
+		// When we haven't received data from BLE for a while, consider the source changed and not a
+		// duplicate
+		set_active_source(root, source);
+		return veFalse;
+	}
+
+	return veTrue;
+}
+
+veBool ble_dbus_check_dup_seq(struct VeItem *root, enum data_source source, uint32_t seqnr)
+{
+	struct device *d     = veItemCtx(root)->ptr;
+	d->last_tick[source] = tick;
+
+	if (d->active_source != DATA_SOURCE_NONE) {
+		if (seqnr == d->last_seqno)
+			return veFalse; // Return false, so that the data is processed and it doesn't timeout
+
+		// Check if the distance between seqnr and d->last_seqno is negative and smaller
+		// than d->seqnr_window.
+		uint32_t mask	= (1u << d->info.seqnr_bits) - 1;
+		uint32_t window = d->info.seqnr_window;
+		if (((seqnr - d->last_seqno + window) & mask) < window)
+			return veTrue;
+	}
+	d->last_seqno = seqnr;
+	set_active_source(root, source);
+
+	return veFalse;
+}
+
+void ble_dbus_send_pending_changes(struct VeItem *root)
+{
+	veItemSendPendingChanges(root);
 }
 
 static void ble_dbus_delete(struct VeItem *droot)

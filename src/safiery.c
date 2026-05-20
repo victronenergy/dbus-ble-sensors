@@ -87,7 +87,7 @@ static const struct dev_info safiery_sensor = {
 	.regs		= safiery_adv,
 };
 
-int safiery_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
+int safiery_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len, enum data_source source)
 {
 	struct VeItem *root;
 	const uint8_t *uid = buf + 5;
@@ -109,6 +109,9 @@ int safiery_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)
 	root = ble_dbus_create(dev, &safiery_sensor, &safiery_tank_info);
 	if (!root)
 		return -1;
+
+	if (ble_dbus_check_dup(root, source))
+		return 0;
 
 	snprintf(name, sizeof(name), "StarTank %02X:%02X:%02X",
 		uid[0], uid[1], uid[2]);

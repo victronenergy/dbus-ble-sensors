@@ -35,6 +35,13 @@ static int gobius_level(struct VeItem *root, VeVariant *val, uint64_t rawval)
 	return 0;
 }
 
+static int gobius_init(struct VeItem *root, const void *data)
+{
+	ble_dbus_create_str(root, "FirmwareVersion", NULL);
+
+	return 0;
+}
+
 static const struct reg_info gobius_adv[] = {
 	{
 		/* Hardware identifier */
@@ -72,6 +79,7 @@ static const struct dev_info gobius_sensor = {
 	.dev_prefix	= "gobius_",
 	.num_regs	= array_size(gobius_adv),
 	.regs		= gobius_adv,
+	.init		= gobius_init,
 };
 
 int gobius_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len)

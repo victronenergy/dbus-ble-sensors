@@ -43,6 +43,90 @@ static struct VeSettingProperties bool_val = {
 	.max.value.SN32 = 1,
 };
 
+static veBool readOnlySetValue(struct VeItem *item, void *ctx, VeVariant *variant)
+{
+	VE_UNUSED(item);
+	VE_UNUSED(ctx);
+	VE_UNUSED(variant);
+
+	return veFalse;
+}
+
+struct VeItem *ble_dbus_create_item(struct VeItem *root, const char *path, VeVariant *val,
+				    const void *format)
+{
+	struct VeItem *item = veItemGetOrCreateUid(root, path);
+	if (!item) {
+		fprintf(stderr, "failed to create item %s : %p\n", path, root);
+		pltExit(-1);
+	}
+	veItemSetSetter(item, readOnlySetValue, NULL);
+	veItemSetFmt(item, veVariantFmt, format);
+	veItemOwnerSet(item, val);
+	return item;
+}
+
+struct VeItem *ble_dbus_create_str(struct VeItem *root, const char *path, const char *str)
+{
+	VeVariant val;
+	return ble_dbus_create_item(root, path, veVariantHeapStr(&val, str), &veUnitNone);
+}
+
+struct VeItem *ble_dbus_create_int(struct VeItem *root, const char *path, int num)
+{
+	VeVariant val;
+	return ble_dbus_create_item(root, path, veVariantSn32(&val, num), &veUnitNone);
+}
+
+int ble_dbus_set_item(struct VeItem *root, const char *path, VeVariant *val)
+{
+	struct VeItem *item = veItemByUid(root, path);
+
+	if (!item) {
+		char buf[256];
+		veItemUid(root, buf, sizeof(buf));
+		fprintf(stderr, "set: item is not yet created %s/%s\n", buf, path);
+		return -1;
+	}
+	return veItemOwnerSet(item, val) ? 0 : -2;
+}
+
+int ble_dbus_set_str(struct VeItem *root, const char *path, const char *str)
+{
+	VeVariant val;
+	return ble_dbus_set_item(root, path, veVariantHeapStr(&val, str));
+}
+
+int ble_dbus_set_int(struct VeItem *root, const char *path, int num)
+{
+	VeVariant val;
+	return ble_dbus_set_item(root, path, veVariantSn32(&val, num));
+}
+
+int ble_dbus_set_float(struct VeItem *root, const char *path, float num)
+{
+	VeVariant val;
+	return ble_dbus_set_item(root, path, veVariantFloat(&val, num));
+}
+
+int ble_dbus_set_invalid(struct VeItem *root, const char *path)
+{
+	struct VeItem *item = veItemByUid(root, path);
+	if (!item) {
+		char buf[256];
+		veItemUid(root, buf, sizeof(buf));
+		fprintf(stderr, "set_invalid: item is not yet created %s/%s\n", buf, path);
+		return -1;
+	}
+	veItemInvalidate(item);
+	return 0;
+}
+
+struct VeItem *ble_dbus_get_item(struct VeItem *root, const char *path)
+{
+	return veItemByUid(root, path);
+}
+
 static void free_item_data(struct VeItem *item)
 {
 	free(veItemCtx(item)->ptr);
@@ -176,47 +260,6 @@ static int load_reg(const struct reg_info *reg, VeVariant *val,
 	return load_int(val, reg, buf, len, root);
 }
 
-int ble_dbus_set_item(struct VeItem *root, const char *path, VeVariant *val,
-		      const void *format)
-{
-	struct VeItem *item = veItemGetOrCreateUid(root, path);
-
-	if (!item) {
-		fprintf(stderr, "failed to create item %s\n", path);
-		return -1;
-	}
-
-	if (veVariantIsValid(val)) {
-		veItemSetFmt(item, veVariantFmt, format);
-		veItemOwnerSet(item, val);
-	} else {
-		veItemInvalidate(item);
-	}
-
-	return 0;
-}
-
-int ble_dbus_set_str(struct VeItem *root, const char *path, const char *str)
-{
-	VeVariant val;
-	return ble_dbus_set_item(root, path, veVariantHeapStr(&val, str),
-				 &veUnitNone);
-}
-
-int ble_dbus_set_int(struct VeItem *root, const char *path, int num)
-{
-	VeVariant val;
-	return ble_dbus_set_item(root, path, veVariantUn32(&val, num),
-				 &veUnitNone);
-}
-
-int ble_dbus_set_float(struct VeItem *root, const char *path, float num)
-{
-	VeVariant val;
-	return ble_dbus_set_item(root, path, veVariantFloat(&val, num),
-				 &veUnitNone);
-}
-
 static int set_reg(struct VeItem *root, const struct reg_info *reg,
 		    const uint8_t *buf, int len)
 {
@@ -227,7 +270,19 @@ static int set_reg(struct VeItem *root, const struct reg_info *reg,
 	if (err)
 		veVariantInvalidType(&val, reg->type);
 
-	return ble_dbus_set_item(root, reg->name, &val, reg->format);
+	return ble_dbus_set_item(root, reg->name, &val);
+}
+
+static void create_regs(struct VeItem *root)
+{
+	const struct dev_info *info = get_dev_info(root);
+	VeVariant val;
+	int i;
+
+	for (i = 0; i < info->num_regs; i++) {
+		const struct reg_info *reg = &info->regs[i];
+		ble_dbus_create_item(root, reg->name, veVariantInvalidType(&val, reg->type), reg->format);
+	}
 }
 
 static struct VeItem *devices;
@@ -265,7 +320,7 @@ int ble_dbus_add_interface(const char *name, const char *addr)
 	char buf[256];
 
 	snprintf(buf, sizeof(buf), "Interfaces/%s/Address", name);
-	ble_dbus_set_str(ctl, buf, addr);
+	ble_dbus_create_str(ctl, buf, addr);
 
 	return 0;
 }
@@ -404,9 +459,15 @@ struct VeItem *ble_dbus_create(const char *dev, const struct dev_info *info,
  					&veUnitNone, &bool_val);
 	veItemCtx(ena)->ptr = droot;
 	veItemSetChanged(ena, on_enabled_changed);
+	ble_dbus_create_item(dev_ctl, "Name", veVariantInvalidType(&val, VE_HEAP_STR), &veUnitIndex);
 
 	veItemCreateSettingsProxy(settings, path, droot, "CustomName",
 				  veVariantFmt, &veUnitNone, &empty_string);
+
+	ble_dbus_create_item(droot, "DeviceName", veVariantInvalidType(&val, VE_HEAP_STR),
+			     &veUnitIndex);
+
+	create_regs(droot);
 
 	ble_dbus_add_settings(droot, dclass->settings, dclass->num_settings);
 	ble_dbus_add_alarms(droot, dclass->alarms, dclass->num_alarms);
@@ -457,16 +518,15 @@ static int ble_dbus_connect(struct VeItem *droot)
 	if (dev_instance < 0)
 		return -1;
 
-	ble_dbus_set_str(droot, "Mgmt/ProcessName", pltProgramName());
-	ble_dbus_set_str(droot, "Mgmt/ProcessVersion", VERSION);
-	ble_dbus_set_str(droot, "Mgmt/Connection", "Bluetooth LE");
-	ble_dbus_set_int(droot, "Connected", 1);
-	ble_dbus_set_int(droot, "Devices/0/ProductId", info->product_id);
-	ble_dbus_set_int(droot, "Devices/0/DeviceInstance", dev_instance);
-	ble_dbus_set_int(droot, "DeviceInstance", dev_instance);
-	ble_dbus_set_str(droot, "ProductName",
-			 veProductGetName(info->product_id));
-	ble_dbus_set_int(droot, "Status", 0);
+	ble_dbus_create_str(droot, "Mgmt/ProcessName", pltProgramName());
+	ble_dbus_create_str(droot, "Mgmt/ProcessVersion", VERSION);
+	ble_dbus_create_str(droot, "Mgmt/Connection", "Bluetooth LE");
+	ble_dbus_create_int(droot, "Connected", 1);
+	ble_dbus_create_int(droot, "Devices/0/ProductId", info->product_id);
+	ble_dbus_create_int(droot, "Devices/0/DeviceInstance", dev_instance);
+	ble_dbus_create_int(droot, "DeviceInstance", dev_instance);
+	ble_dbus_create_str(droot, "ProductName", veProductGetName(info->product_id));
+	ble_dbus_create_int(droot, "Status", 0);
 	veItemCreateProductId(droot, info->product_id);
 
 	snprintf(name, sizeof(name), "com.victronenergy.%s.%s", role, dev_id);
@@ -553,11 +613,15 @@ static void add_alarm_config(struct VeItem *droot, const struct alarm *alarm)
 int ble_dbus_add_alarms(struct VeItem *droot, const struct alarm *alarms,
 			int num_alarms)
 {
+	VeVariant val;
+	char buf[64];
 	int i;
 
 	for (i = 0; i < num_alarms; i++) {
 		const struct alarm *alarm = &alarms[i];
 
+		alarm_name(alarm, buf, sizeof(buf));
+		ble_dbus_create_item(droot, buf, veVariantUn32(&val, 0), &veUnitNone);
 		if (alarm->flags & ALARM_FLAG_CONFIG)
 			add_alarm_config(droot, alarm);
 	}

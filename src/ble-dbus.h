@@ -113,11 +113,15 @@ int ble_dbus_add_alarms(struct VeItem *droot, const struct alarm *alarms,
 int ble_dbus_is_enabled(struct VeItem *root);
 int ble_dbus_set_regs(struct VeItem *root, const uint8_t *data, int len);
 int ble_dbus_set_name(struct VeItem *root, const char *name);
-int ble_dbus_set_item(struct VeItem *root, const char *path, VeVariant *val,
-		      const void *format);
+struct VeItem *ble_dbus_create_item(struct VeItem *droot, const char *path, VeVariant *val,
+				    const void *format);
+struct VeItem *ble_dbus_create_str(struct VeItem *root, const char *path, const char *str);
+struct VeItem *ble_dbus_create_int(struct VeItem *root, const char *path, int num);
+int ble_dbus_set_item(struct VeItem *root, const char *path, VeVariant *val);
 int ble_dbus_set_str(struct VeItem *root, const char *path, const char *str);
 int ble_dbus_set_int(struct VeItem *root, const char *path, int num);
 int ble_dbus_set_float(struct VeItem *root, const char *path, float num);
+int ble_dbus_set_invalid(struct VeItem *root, const char *path);
 void ble_dbus_update_alarms(struct VeItem *droot);
 int ble_dbus_update(struct VeItem *root);
 void ble_dbus_tick(void);

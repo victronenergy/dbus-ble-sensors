@@ -149,11 +149,10 @@ static void tank_init(struct VeItem *root, const void *data)
 	struct VeSettingProperties full;
 	VeVariant v;
 
-	ble_dbus_set_str(root, "RawUnit", ti->raw_unit ?: "cm");
-	ble_dbus_set_item(root, "Remaining",
-			  veVariantInvalidType(&v, VE_FLOAT), &veUnitm3);
-	ble_dbus_set_item(root, "Level",
-			  veVariantInvalidType(&v, VE_FLOAT), &veUnitNone);
+	ble_dbus_create_item(root, "RawUnit", veVariantHeapStr(&v, ti->raw_unit ?: "cm"), &veUnitNone);
+	ble_dbus_create_item(root, "Remaining", veVariantInvalidType(&v, VE_FLOAT), &veUnitm3);
+	ble_dbus_create_item(root, "Level", veVariantInvalidType(&v, VE_FLOAT), &veUnitNone);
+	ble_dbus_create_item(root, "Status", veVariantInvalidType(&v, VE_UN32), &veUnitNone);
 
 	fluid_type = fluid_type_props;
 	fluid_type.def.value.SN32 = ti->default_fluid_type;
@@ -197,7 +196,6 @@ static void tank_update(struct VeItem *root, const void *data)
 	float full;
 	float level;
 	float remain;
-	VeVariant v;
 	int i;
 
 	item = veItemByUid(root, "RawValue");
@@ -238,17 +236,14 @@ static void tank_update(struct VeItem *root, const void *data)
 	remain = level * capacity;
 
 	ble_dbus_set_int(root, "Level", lrintf(100 * level));
-
-	item = veItemByUid(root, "Remaining");
-	veItemOwnerSet(item, veVariantFloat(&v, remain));
-
+	ble_dbus_set_float(root, "Remaining", remain);
 	ble_dbus_set_int(root, "Status", STATUS_OK);
 
 	return;
 
 out_inval:
-	veItemInvalidate(veItemByUid(root, "Level"));
-	veItemInvalidate(veItemByUid(root, "Remaining"));
+	ble_dbus_set_invalid(root, "Level");
+	ble_dbus_set_invalid(root, "Remaining");
 	ble_dbus_set_int(root, "Status", 4);
 }
 

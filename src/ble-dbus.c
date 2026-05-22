@@ -122,6 +122,52 @@ int ble_dbus_set_invalid(struct VeItem *root, const char *path)
 	return 0;
 }
 
+int ble_dbus_set_remote_item(struct VeItem *root, const char *path, VeVariant *val)
+{
+	struct VeItem *item = veItemByUid(root, path);
+
+	if (!item) {
+		char buf[256];
+		veItemUid(root, buf, sizeof(buf));
+		fprintf(stderr, "set: item is not yet created %s/%s\n", buf, path);
+		return -1;
+	}
+	return veItemSet(item, val) ? 0 : -2;
+}
+
+int ble_dbus_set_remote_str(struct VeItem *root, const char *path, const char *str)
+{
+	VeVariant val;
+	return ble_dbus_set_remote_item(root, path, veVariantHeapStr(&val, str));
+}
+
+int ble_dbus_set_remote_int(struct VeItem *root, const char *path, int num)
+{
+	VeVariant val;
+	return ble_dbus_set_remote_item(root, path, veVariantSn32(&val, num));
+}
+
+int ble_dbus_set_remote_float(struct VeItem *root, const char *path, float num)
+{
+	VeVariant val;
+	return ble_dbus_set_remote_item(root, path, veVariantFloat(&val, num));
+}
+
+int ble_dbus_set_remote_invalid(struct VeItem *root, const char *path)
+{
+	struct VeItem *item = veItemByUid(root, path);
+	VeVariant val;
+	if (!item) {
+		char buf[256];
+		veItemUid(root, buf, sizeof(buf));
+		fprintf(stderr, "set_invalid: item is not yet created %s/%s\n", buf, path);
+		return -1;
+	}
+	veItemLocalValue(item, &val);
+	veVariantInvalidate(&val);
+	return veItemSet(item, &val) ? 0 : -2;
+}
+
 struct VeItem *ble_dbus_get_item(struct VeItem *root, const char *path)
 {
 	return veItemByUid(root, path);

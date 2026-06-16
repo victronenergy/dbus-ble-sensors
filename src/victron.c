@@ -4,6 +4,7 @@
 #include "victron-battery_monitor.h"
 #include "victron-bsc.h"
 #include "victron-lsbms.h"
+#include "victron-smartlithium.h"
 #include "victron-smartorion.h"
 #include "victron-solarsense.h"
 
@@ -135,6 +136,7 @@ static const struct instant_readout_handler instant_readout_handlers[] = {
 	{ RECORD_TYPE_DCDC_CONVERTER, &smart_orion_victron_device },
 	{ RECORD_TYPE_LYNX_SMART_BMS, &lsbms_victron_device, lsbms_is_supported },
 	{ RECORD_TYPE_SOLARSENSE, &solarsense_victron_device },
+	{ RECORD_TYPE_SMARTLITHIUM, &smartlithium_victron_device },
 };
 
 static struct VeSettingProperties key_props = {

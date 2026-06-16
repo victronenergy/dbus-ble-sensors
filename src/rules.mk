@@ -14,4 +14,5 @@ SRCS += ruuvi.c
 SRCS += safiery.c
 SRCS += victron.c
 SRCS += victron-lsbms.c
+SRCS += victron-smartlithium.c
 SRCS += victron-solarsense.c

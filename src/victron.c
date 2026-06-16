@@ -2,6 +2,7 @@
 
 #include "ble-dbus.h"
 #include "victron-lsbms.h"
+#include "victron-smartlithium.h"
 #include "victron-solarsense.h"
 
 #include <openssl/aes.h>
@@ -128,6 +129,7 @@ struct instant_readout_handler {
 static const struct instant_readout_handler instant_readout_handlers[] = {
 	{ RECORD_TYPE_LYNX_SMART_BMS, &lsbms_victron_device },
 	{ RECORD_TYPE_SOLARSENSE, &solarsense_victron_device },
+	{ RECORD_TYPE_SMARTLITHIUM, &smartlithium_victron_device },
 };
 
 static struct VeSettingProperties key_props = {

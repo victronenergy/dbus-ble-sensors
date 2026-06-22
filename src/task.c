@@ -1,3 +1,5 @@
+#include <grp.h>
+#include <pwd.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -6,13 +8,16 @@
 #include <signal.h>
 #include <unistd.h>
 #include <event2/event.h>
+#include <sys/capability.h>
+#include <sys/prctl.h>
 
 #include <velib/platform/console.h>
 #include <velib/platform/plt.h>
 #include <velib/platform/task.h>
 #include <velib/types/ve_dbus_item.h>
-#include <velib/types/ve_values.h>
+#include <velib/utils/ve_logger.h>
 #include <velib/utils/ve_item_utils.h>
+#include <velib/types/ve_values.h>
 
 #include "ble-dbus.h"
 #include "ble-scan.h"
@@ -75,10 +80,78 @@ static void sighand(int sig)
 	event_base_loopbreak(pltGetLibEventBase());
 }
 
+static void change_user(void)
+{
+	cap_t caps = NULL;
+	cap_value_t cap_list[] = { CAP_NET_ADMIN, CAP_NET_RAW };
+	struct passwd *pw = getpwnam("ble-sensors");
+
+	if (!pw) {
+		logE("task", "no getpwnam ble-sensors found!");
+		pltExit(6);
+	}
+
+	/* Keep capabilities after dropping root */
+	if (prctl(PR_SET_KEEPCAPS, 1L) < 0) {
+		perror("prctl");
+		pltExit(6);
+	}
+
+	/* Set supplementary groups */
+	if (initgroups(pw->pw_name, pw->pw_gid) < 0) {
+		perror("initgroups");
+		pltExit(6);
+	}
+
+	if (setgid(pw->pw_gid) < 0) {
+		perror("setgid");
+		pltExit(6);
+	}
+
+	if (setuid(pw->pw_uid) < 0) {
+		perror("setuid");
+		pltExit(6);
+	}
+
+	caps = cap_init();
+	if (!caps) {
+		perror("cap_init");
+		pltExit(6);
+	}
+
+	if (cap_set_flag(caps, CAP_PERMITTED, sizeof(cap_list) / sizeof(cap_list[0]), cap_list, CAP_SET) < 0) {
+		perror("cap_set_flag(PERMITTED)");
+		cap_free(caps);
+		pltExit(6);
+	}
+
+	if (cap_set_flag(caps, CAP_EFFECTIVE, sizeof(cap_list) / sizeof(cap_list[0]), cap_list, CAP_SET) < 0) {
+		perror("cap_set_flag(EFFECTIVE)");
+		cap_free(caps);
+		pltExit(6);
+	}
+
+	/* Apply capability set */
+	if (cap_set_proc(caps) < 0) {
+		perror("cap_set_proc");
+		cap_free(caps);
+		pltExit(6);
+	}
+
+	if (cap_free(caps) < 0) {
+		perror("cap_free");
+		pltExit(6);
+	}
+
+	logI("task", "Running as %s (uid=%d gid=%d)", pw->pw_name, getuid(), getgid());
+}
+
 void taskInit(void)
 {
 	struct sigaction sa = { 0 };
 	int err;
+
+	change_user();
 
 	connect_dbus();
 	ble_dbus_init();

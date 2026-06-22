@@ -56,3 +56,39 @@ int ble_handle_mfg(const bdaddr_t *bdaddr, uint16_t mfg, const uint8_t *buf, int
 
 	return 0;
 }
+
+int ble_parse_adv(const bdaddr_t *bdaddr, const uint8_t *buf, int len)
+{
+	while (len >= 2) {
+		int adlen, adtyp;
+
+		adlen = *buf++;
+		len--;
+
+		if (!adlen || len < adlen)
+			break;
+
+		adtyp = *buf++;
+		adlen--;
+		len--;
+
+		switch (adtyp) {
+		case 0x09:	/* Complete Local Name */
+			ble_handle_name(bdaddr, buf, adlen);
+			break;
+
+		case 0xff:	/* Manufacturer Specific Data */
+			if (adlen > 2)
+				ble_handle_mfg(bdaddr,
+					bt_get_le16(buf),
+					buf + 2, adlen - 2,
+					DATA_SOURCE_BLE);
+			break;
+		}
+
+		buf += adlen;
+		len -= adlen;
+	}
+
+	return 0;
+}

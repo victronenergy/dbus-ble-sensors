@@ -19,7 +19,8 @@
 #include "task.h"
 
 #define BLE_SOCKET_MAX_PACKET 128
-#define BLE_SOCKET_MIN_SIZE   11
+#define BLE_SOCKET_MIN_SIZE_V1 11
+#define BLE_SOCKET_MIN_SIZE_V2 14
 
 struct ble_socket {
 	int sock;
@@ -66,52 +67,86 @@ static void ble_socket_parse(const uint8_t *buf, int len)
 	const uint8_t *payload;
 	int offset = 0;
 
-	if (len < BLE_SOCKET_MIN_SIZE) {
+	if (len < 1)
 		return;
-	}
 
 	version = buf[0];
-	if (version != BLE_SOCKET_VERSION) {
-		return;
-	}
+	if (version == 1) {
+		/* Format 1:
+		 * byte 0: version (1)
+		 * byte 1: flags
+		 * bytes 2-7: bdaddr
+		 * bytes 8-9: mfg_id
+		 * byte 10: payload length
+		 * bytes 11..(11+payload length): payload
+		 * optional fields follow, depending on flags:
+		 *   if flags & BLE_SOCKET_FLAG_RSSI:
+		 *     byte (11+payload length): RSSI (signed)
+		 *   if flags & BLE_SOCKET_FLAG_REPEATER:
+		 *     bytes (12+payload length)..(17+payload length): repeater bdaddr
+		 *   if flags & BLE_SOCKET_FLAG_NAME:
+		 *     byte (12+payload length) or (18+payload length): name length N
+		 *     bytes (13+payload length)..(12+payload length+N) or
+		 *           (19+payload length)..(18+payload length+N): name (not zero ended)
+		 */
+		if (len < BLE_SOCKET_MIN_SIZE_V1) {
+			return;
+		}
+		flags = buf[1];
 
-	flags = buf[1];
+		memcpy(&bdaddr, buf + 2, 6);
 
-	memcpy(&bdaddr, buf + 2, 6);
+		mfg_id	    = buf[8] | (buf[9] << 8);
+		payload_len = buf[10];
+		payload	    = buf + 11;
+		offset	    = 11 + payload_len;
 
-	mfg_id	    = buf[8] | (buf[9] << 8);
-	payload_len = buf[10];
-	payload	    = buf + 11;
-	offset	    = 11 + payload_len;
-
-	if (len < offset)
-		return;
-	ble_handle_mfg(&bdaddr, mfg_id, payload, payload_len, DATA_SOURCE_GATEWAY);
-
-	if (flags & BLE_SOCKET_FLAG_RSSI) {
-		offset += 1;
 		if (len < offset)
 			return;
+		ble_handle_mfg(&bdaddr, mfg_id, payload, payload_len, DATA_SOURCE_GATEWAY);
+
+		if (flags & BLE_SOCKET_FLAG_RSSI) {
+			offset += 1;
+			if (len < offset)
+				return;
+		}
+
+		if (flags & BLE_SOCKET_FLAG_REPEATER) {
+			offset += 6;
+			if (len < offset)
+				return;
+		}
+
+		if (flags & BLE_SOCKET_FLAG_NAME) {
+			offset += 1;
+			if (len < offset)
+				return;
+
+			uint8_t name_len = buf[offset - 1];
+			offset += name_len;
+			if (len < offset)
+				return;
+
+			ble_handle_name(&bdaddr, buf + offset - name_len, name_len);
+		}
+	} else if (version == 2) {
+		/* Format 2:
+		 * byte 0: version (2)
+		 * bytes 1-6: repeater bdaddr
+		 * bytes 7-12: advertisement bdaddr
+		 * byte 13: rssi (signed), 0x7F means invalid
+		 * bytes 14-...: raw advertisement data (same format as in BLE scan results)
+		 */
+		if (len < BLE_SOCKET_MIN_SIZE_V2) {
+			return;
+		}
+		memcpy(&bdaddr, buf + 7, 6);
+		payload_len = len - 14;
+		payload	    = buf + 14;
+
+		ble_parse_adv(&bdaddr, payload, payload_len);
 	}
 
-	if (flags & BLE_SOCKET_FLAG_REPEATER) {
-		offset += 6;
-		if (len < offset)
-			return;
-	}
-
-	if (flags & BLE_SOCKET_FLAG_NAME) {
-		offset += 1;
-		if (len < offset)
-			return;
-
-		uint8_t name_len = buf[offset - 1];
-		offset += name_len;
-		if (len < offset)
-			return;
-
-		ble_handle_name(&bdaddr, buf + offset - name_len, name_len);
-	}
 
 	return;
 }

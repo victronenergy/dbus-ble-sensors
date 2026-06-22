@@ -94,45 +94,10 @@ static int ble_scan_setup(struct hci_device *dev, int addr_type)
 
 static int ble_scan_parse_adv(const le_advertising_info *adv)
 {
-	const uint8_t *buf = adv->data;
-	int len = adv->length;
-
 	if (!ble_scan_enabled)
 		return 0;
 
-	while (len >= 2) {
-		int adlen, adtyp;
-
-		adlen = *buf++;
-		len--;
-
-		if (!adlen || len < adlen)
-			break;
-
-		adtyp = *buf++;
-		adlen--;
-		len--;
-
-		if (len < adlen)
-			break;
-
-		switch (adtyp) {
-		case 0x09:	/* Complete Local Name */
-			ble_handle_name(&adv->bdaddr, buf, adlen);
-			break;
-
-		case 0xff:	/* Manufacturer Specific Data */
-			if (adlen > 2)
-				ble_handle_mfg(&adv->bdaddr,
-					bt_get_le16(buf),
-					buf + 2, adlen - 2,
-					DATA_SOURCE_BLE);
-			break;
-		}
-
-		buf += adlen;
-		len -= adlen;
-	}
+	ble_parse_adv(&adv->bdaddr, adv->data, adv->length);
 
 	return 0;
 }

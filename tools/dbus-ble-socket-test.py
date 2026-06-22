@@ -1,27 +1,53 @@
 #!/usr/bin/env python3
 """
 Test script for sending BLE sensor data via UDP socket.
-
-Packet format (v1):
-  Offset  Size  Description
-  ------  ----  -----------
-  0       1     Version (0x01)
-  1       1     Flags
-                - bit 0: RSSI present
-                - bit 1: Repeater MAC present
-  2       6     Sensor BD address
-  8       2     Manufacturer ID (little-endian)
-  10      1     Payload length (N)
-  11      N     Manufacturer data payload
-  11+N    ...   Optional fields (in flag order):
-                - RSSI: 1 byte (int8_t)
-                - Repeater MAC: 6 bytes
 """
 
+import sys
 import time
 import socket
 import struct
 import argparse
+import json
+import os
+import ssl
+import urllib.parse
+import urllib.request
+import urllib.error
+import http.cookiejar
+
+"""
+PACKET FORMATS
+
+Packet format (v1):
+    Offset  Size  Description
+    ------  ----  -----------
+    0       1     Version (0x01)
+    1       1     Flags
+                                - bit 0: RSSI present
+                                - bit 1: Repeater MAC present
+                                - bit 2: Name present
+    2       6     Sensor BD address
+    8       2     Manufacturer ID (little-endian)
+    10      1     Payload length (N)
+    11      N     Manufacturer data payload
+    11+N    ...   Optional fields (in flag order):
+                                - RSSI: 1 byte (int8_t)
+                                - Repeater MAC: 6 bytes
+                                - Name: 1 byte length + UTF-8 name bytes
+
+Packet format (v2):
+    Offset  Size  Description
+    ------  ----  -----------
+    0       1     Version (0x02)
+    1       6     Repeater BD address
+    7       6     Advertisement BD address
+    13      1     RSSI (int8_t), 0x7F means invalid
+    14      ...   Raw BLE advertisement AD structures:
+                                - [len][type][data...]
+                                - type 0x09: Complete Local Name
+                                - type 0xFF: Manufacturer Specific Data
+"""
 
 # Manufacturer IDs
 MFG_ID_RUUVI = 0x0499
@@ -44,12 +70,12 @@ def mac_to_bytes(mac_str):
     return bytes(int(p, 16) for p in reversed(parts))
 
 
-def build_packet(sensor_mac, mfg_id, payload, rssi=None, repeater_mac=None, name=None):
-    """Build a UDP packet for the BLE socket listener."""
+def build_packet_v1(sensor_mac, mfg_id, payload, rssi=None, gw_mac=None, name=None):
+    """Build a V1 UDP packet for the BLE socket listener."""
     flags = 0
     if rssi is not None:
         flags |= FLAG_RSSI
-    if repeater_mac is not None:
+    if gw_mac is not None:
         flags |= FLAG_REPEATER
     if name is not None:
         flags |= FLAG_NAME
@@ -61,13 +87,56 @@ def build_packet(sensor_mac, mfg_id, payload, rssi=None, repeater_mac=None, name
 
     if rssi is not None:
         packet += struct.pack('b', rssi)
-    if repeater_mac is not None:
-        packet += mac_to_bytes(repeater_mac)
+    if gw_mac is not None:
+        packet += mac_to_bytes(gw_mac)
     if name is not None:
         utf8_name = name.encode('utf-8')
         packet += struct.pack('B', len(utf8_name))
         packet += utf8_name
     return packet
+
+
+def ad_struct(ad_type, ad_data):
+    """Build one BLE advertisement AD structure: [len][type][data]."""
+    if len(ad_data) > 254:
+        raise ValueError("AD structure too long")
+    return struct.pack('B', len(ad_data) + 1) + struct.pack('B', ad_type) + ad_data
+
+
+def build_adv_data(mfg_id, payload, name=None):
+    """Build BLE advertisement data with manufacturer data and optional complete name."""
+    adv_data = ad_struct(0xFF, struct.pack('<H', mfg_id) + payload)
+    if name is not None:
+        adv_data += ad_struct(0x09, name.encode('utf-8'))
+    return adv_data
+
+
+def build_packet_v2(sensor_mac, mfg_id, payload, rssi=None, gw_mac=None, name=None):
+    """Build a V2 UDP packet for the BLE socket listener."""
+    if not gw_mac:
+        gw_mac = "00:00:00:00:00:00"
+
+    adv_data = build_adv_data(mfg_id, payload, name=name)
+
+    rssi_byte = 0x7F if rssi is None else struct.pack('b', rssi)[0]
+
+    packet = struct.pack('B', 2)
+    packet += mac_to_bytes(gw_mac)
+    packet += mac_to_bytes(sensor_mac)
+    packet += struct.pack('B', rssi_byte)
+    packet += adv_data
+    return packet
+
+
+def build_packet(version, sensor_mac, mfg_id, payload, rssi=None, gw_mac=None, name=None):
+    """Build a UDP packet in either V1 or V2 format."""
+    if version == 1:
+        return build_packet_v1(sensor_mac, mfg_id, payload, rssi=rssi,
+                               gw_mac=gw_mac, name=name)
+    if version == 2:
+        return build_packet_v2(sensor_mac, mfg_id, payload, rssi=rssi,
+                               gw_mac=gw_mac, name=name)
+    raise ValueError(f"Unsupported packet version: {version}")
 
 
 def build_ruuvi_rawv2(temp_c, humidity_pct, pressure_hpa, battery_v, seqnr):
@@ -97,9 +166,8 @@ def build_ruuvi_rawv2(temp_c, humidity_pct, pressure_hpa, battery_v, seqnr):
     return payload
 
 
-def send_ruuvi_example(sock, addr, seqnr, name):
-    """Send example Ruuvi sensor data."""
-    sensor_mac = "AA:BB:CC:DD:EE:01"
+def build_ruuvi_example(seqnr):
+    """Build example Ruuvi sensor reading."""
     payload = build_ruuvi_rawv2(
         temp_c=22.5,
         humidity_pct=45.0,
@@ -107,13 +175,12 @@ def send_ruuvi_example(sock, addr, seqnr, name):
         battery_v=2.95,
         seqnr=seqnr
     )
-    print(f"Payload length: {len(payload)} bytes")
-    print(f"Payload hex: {payload.hex()}")
-    packet = build_packet(sensor_mac, MFG_ID_RUUVI, payload, rssi=-65, name=name)
-    print(f"Total packet length: {len(packet)} bytes")
-    print(f"Packet hex: {packet.hex()}")
-    sock.sendto(packet, addr)
-    print(f"Sent Ruuvi data from {sensor_mac}")
+    return {
+        'sensor_mac': 'AA:BB:CC:DD:EE:01',
+        'mfg_id': MFG_ID_RUUVI,
+        'payload': payload,
+        'rssi': -65,
+    }
 
 
 def build_solarsense(power_w, yield_kwh, irradiance_wm2, cell_temp_c, battery_v, nonce):
@@ -193,9 +260,8 @@ def build_solarsense(power_w, yield_kwh, irradiance_wm2, cell_temp_c, battery_v,
     return bytes(payload)
 
 
-def send_solarsense_example(sock, addr, seqnr, name):
-    """Send example SolarSense sensor data."""
-    sensor_mac = "AA:BB:CC:DD:EE:02"
+def build_solarsense_example(seqnr):
+    """Build example SolarSense sensor reading."""
     payload = build_solarsense(
         power_w=5000,           # 5kW installation
         yield_kwh=12.5,         # 12.5 kWh today
@@ -204,13 +270,12 @@ def send_solarsense_example(sock, addr, seqnr, name):
         battery_v=3.1,          # 3.1V battery
         nonce=seqnr
     )
-    print(f"Payload length: {len(payload)} bytes")
-    print(f"Payload hex: {payload.hex()}")
-    packet = build_packet(sensor_mac, MFG_ID_SOLARSENSE, payload, rssi=-55, name=name)
-    print(f"Total packet length: {len(packet)} bytes")
-    print(f"Packet hex: {packet.hex()}")
-    sock.sendto(packet, addr)
-    print(f"Sent SolarSense data from {sensor_mac}")
+    return {
+        'sensor_mac': 'AA:BB:CC:DD:EE:02',
+        'mfg_id': MFG_ID_SOLARSENSE,
+        'payload': payload,
+        'rssi': -55,
+    }
 
 
 def build_garnet(fresh1, grey1, black1, fresh2, grey2, black2, galley, lpg, battery_v):
@@ -235,8 +300,8 @@ def build_garnet(fresh1, grey1, black1, fresh2, grey2, black2, galley, lpg, batt
     payload[13] = 0x00  # reserved
     return bytes(payload)
 
-def send_garnet_soul_example(sock, addr):
-    sensor_mac = "AA:BB:CC:DD:EE:01"
+def build_garnet_soul_example(_seqnr):
+    """Build example Garnet Soul sensor reading."""
     payload = build_garnet(
         fresh1=22.5,
         grey1=45.0,
@@ -248,89 +313,366 @@ def send_garnet_soul_example(sock, addr):
         lpg=None,
         battery_v=13.6
     )
+    return {
+        'sensor_mac': 'AA:BB:CC:DD:EE:01',
+        'mfg_id': MFG_ID_GARNET,
+        'payload': payload,
+        'rssi': -65,
+        'name': 'Soul',
+    }
+
+
+def send_example(sock, addr, transport, post_url, packet_version, gw_mac,
+                 http_poster, example, name_override=None):
+    """Send one built example over either UDP or HTTP(S) POST."""
+    sensor_mac = example['sensor_mac']
+    mfg_id = example['mfg_id']
+    payload = example['payload']
+    rssi = example.get('rssi')
+    name = name_override if name_override is not None else example.get('name')
+
     print(f"Payload length: {len(payload)} bytes")
     print(f"Payload hex: {payload.hex()}")
-    packet = build_packet(sensor_mac, MFG_ID_GARNET, payload, rssi=-65, name="Soul")
-    print(f"Total packet length: {len(packet)} bytes")
-    print(f"Packet hex: {packet.hex()}")
-    sock.sendto(packet, addr)
-    print(f"Sent Garnet data from {sensor_mac}")
+
+    if transport == 'udp':
+        packet = build_packet(packet_version, sensor_mac, mfg_id, payload,
+                              rssi=rssi, gw_mac=gw_mac, name=name)
+        print(f"Total packet length: {len(packet)} bytes")
+        print(f"Packet hex: {packet.hex()}")
+        try:
+            sock.sendto(packet, addr)
+        except OSError as e:
+            print(f"Error: Failed to send UDP packet to {addr}: {e}", file=sys.stderr)
+            sys.exit(1)
+        print(f"Sent data from {sensor_mac}")
+        return
+
+    send_post_ble_gw(http_poster, post_url, sensor_mac, mfg_id, payload,
+                     rssi=rssi, gw_mac=gw_mac, name=name)
+    print(f"Posted data from {sensor_mac}")
 
 
-def send_raw(sock, addr, sensor_mac, mfg_id, payload_hex, rssi=None, name=None):
+def send_raw(sock, addr, packet_version, sensor_mac, mfg_id, payload_hex,
+             rssi=None, gw_mac=None, name=None):
     """Send raw payload."""
     payload = bytes.fromhex(payload_hex)
-    packet = build_packet(sensor_mac, mfg_id, payload, rssi=rssi, name=name)
-    sock.sendto(packet, addr)
+    packet = build_packet(packet_version, sensor_mac, mfg_id, payload,
+                          rssi=rssi, gw_mac=gw_mac, name=name)
+    try:
+        sock.sendto(packet, addr)
+    except OSError as e:
+        print(f"Error: Failed to send UDP packet to {addr}: {e}", file=sys.stderr)
+        sys.exit(1)
     print(f"Sent raw data from {sensor_mac}, mfg_id=0x{mfg_id:04x}, "
           f"payload={payload_hex}")
+
+
+class AuthenticatedPoster:
+    """HTTP(S) poster with optional login.php password session auth."""
+
+    def __init__(self, host, insecure_tls=False, timeout=3.0, password=None):
+        self.host = host
+        self.insecure_tls = insecure_tls
+        self.timeout = timeout
+        self.password = password
+        self.cookiejar_path = self._cookiejar_path_for_host(host)
+        self.cookiejar = http.cookiejar.MozillaCookieJar(self.cookiejar_path)
+
+        self._load_persisted_session()
+
+        handlers = []
+        handlers.append(urllib.request.HTTPCookieProcessor(self.cookiejar))
+        if insecure_tls:
+            context = ssl._create_unverified_context()
+            handlers.append(urllib.request.HTTPSHandler(context=context))
+
+        self.opener = urllib.request.build_opener(*handlers)
+
+    @staticmethod
+    def _cookiejar_path_for_host(host):
+        safe_host = ''.join(c if c.isalnum() or c in '-._' else '_' for c in host)
+        base_dir = os.path.expanduser('~/.cache/dbus-ble-socket-test')
+        return os.path.join(base_dir, f'session-{safe_host}.cookies.txt')
+
+    def _load_persisted_session(self):
+        if not os.path.exists(self.cookiejar_path):
+            return
+        try:
+            self.cookiejar.load(ignore_discard=True, ignore_expires=True)
+            print(f"Loaded persisted session cookies from {self.cookiejar_path}")
+        except (OSError, http.cookiejar.LoadError) as exc:
+            print(f"Warning: failed to load persisted session cookies: {exc}")
+
+    def _save_persisted_session(self):
+        try:
+            os.makedirs(os.path.dirname(self.cookiejar_path), exist_ok=True)
+            self.cookiejar.save(ignore_discard=True, ignore_expires=True)
+        except OSError as exc:
+            print(f"Warning: failed to persist session cookies: {exc}")
+
+    def _open_json(self, url, msg):
+        body = json.dumps(msg).encode('utf-8')
+        headers = {'Content-Type': 'application/json; charset=utf-8'}
+
+        req = urllib.request.Request(
+            url,
+            data=body,
+            headers=headers,
+            method='POST'
+        )
+
+        with self.opener.open(req, timeout=self.timeout) as resp:
+            final_url = resp.geturl()
+            content_type = resp.headers.get('Content-Type', '')
+            resp_body = resp.read().decode('utf-8', errors='replace')
+            return resp.status, final_url, content_type, resp_body
+
+    @staticmethod
+    def _is_login_url(url):
+        parsed = urllib.parse.urlparse(url)
+        return 'login.php' in parsed.path
+
+    def _post_login_password(self, login_url):
+        if not self.password:
+            raise RuntimeError('Authentication redirected to login.php but no --password was provided')
+
+        body = urllib.parse.urlencode({
+            'username': 'remoteconsole',
+            'password': self.password,
+        }).encode('utf-8')
+
+        req = urllib.request.Request(
+            login_url,
+            data=body,
+            headers={'Content-Type': 'application/x-www-form-urlencoded'},
+            method='POST'
+        )
+
+        class _NoRedirect(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, req, fp, code, msg, headers, newurl):
+                return None
+
+        login_handlers = [
+            urllib.request.HTTPCookieProcessor(self.cookiejar),
+            _NoRedirect(),
+        ]
+        if self.insecure_tls:
+            login_handlers.append(urllib.request.HTTPSHandler(context=ssl._create_unverified_context()))
+
+        no_redirect_opener = urllib.request.build_opener(*login_handlers)
+
+        try:
+            with no_redirect_opener.open(req, timeout=self.timeout) as resp:
+                _ = resp.read()
+                set_cookie_headers = resp.headers.get_all('Set-Cookie') or []
+                return resp.status, resp.geturl(), set_cookie_headers
+        except urllib.error.HTTPError as exc:
+            # Expected for 30x when redirect following is disabled. Treat as successful login step.
+            if exc.code in (301, 302, 303, 307, 308):
+                _ = exc.read()
+                set_cookie_headers = exc.headers.get_all('Set-Cookie') or []
+                location = exc.headers.get('Location')
+                final_url = urllib.parse.urljoin(login_url, location) if location else login_url
+                return exc.code, final_url, set_cookie_headers
+            print(f"Error: HTTP {exc.code} - {exc.reason}", file=sys.stderr)
+            raise
+
+    def _dump_cookiejar(self):
+        cookies = []
+        for cookie in self.cookiejar:
+            cookies.append(f"{cookie.name}={cookie.value}; domain={cookie.domain}; path={cookie.path}")
+        return cookies
+
+    def post_json(self, url, msg):
+        status, final_url, _content_type, resp_body = self._open_json(url, msg)
+
+        if final_url != url and self._is_login_url(final_url):
+            print(f"Authentication required: redirected to {final_url}")
+            print("Submitting password to login.php")
+            login_status, login_final_url, set_cookie_headers = self._post_login_password(final_url)
+            print(f"Authentication succeeded (HTTP {login_status}), redirect target: {login_final_url}")
+
+            if set_cookie_headers:
+                print("Cookies returned by login response:")
+                for cookie in set_cookie_headers:
+                    print(f"  Set-Cookie: {cookie}")
+            else:
+                print("No Set-Cookie headers returned by login response")
+
+            jar_cookies = self._dump_cookiejar()
+            if jar_cookies:
+                print("Session cookies currently stored:")
+                for cookie in jar_cookies:
+                    print(f"  {cookie}")
+
+            print("Retrying original POST /ble-gw with authenticated session")
+            r_status, r_url, _r_type, r_body = self._open_json(url, msg)
+            self._save_persisted_session()
+            return r_status, r_url, r_body
+
+        self._save_persisted_session()
+        return status, final_url, resp_body
+
+
+def send_post_ble_gw(http_poster, url, sensor_mac, mfg_id, payload, rssi=None,
+                     gw_mac=None, name=None):
+    """Send one BLE reading to a GX /ble-gw endpoint via HTTP(S) POST."""
+    adv_data = build_adv_data(mfg_id, payload, name=name)
+
+    msg = {
+        "data": {
+            "tags": {
+                sensor_mac: {
+                    "data": adv_data.hex(),
+                }
+            }
+        }
+    }
+
+    if rssi is not None:
+        msg["data"]["tags"][sensor_mac]["rssi"] = int(rssi)
+    if gw_mac:
+        msg["data"]["gw_mac"] = gw_mac
+
+    print("POST JSON:")
+    print(json.dumps(msg, separators=(',', ':'), sort_keys=True))
+
+    status, final_url, resp_body = http_poster.post_json(url, msg)
+    print(f"POST {url} -> HTTP {status}")
+    if final_url != url:
+        print(f"Final URL: {final_url}")
+    print(f"Response: {resp_body}")
+
+
+def send_post_raw(http_poster, url, sensor_mac, mfg_id, payload_hex,
+                  rssi=None, gw_mac=None, name=None):
+    """Send raw manufacturer payload as POST to /ble-gw."""
+    payload = bytes.fromhex(payload_hex)
+    send_post_ble_gw(http_poster, url, sensor_mac, mfg_id, payload,
+                     rssi=rssi, gw_mac=gw_mac, name=name)
+    print(f"Posted raw data from {sensor_mac}, mfg_id=0x{mfg_id:04x}, payload={payload_hex}")
 
 
 def main():
     parser = argparse.ArgumentParser(description='Send BLE data via UDP')
     parser.add_argument('--host', default='127.0.0.1',
-                        help='Target host (default: 127.0.0.1)')
+                        help='Target host (UDP socket host or GX host for POST, default: 127.0.0.1)')
     parser.add_argument('--port', type=int, default=18542,
                         help='Target port (default: 18542)')
+    parser.add_argument('--transport', choices=['udp', 'http', 'https'], default='udp',
+                        help='Output transport (default: udp)')
+    # HTTP/HTTPS POST options
+    parser.add_argument('--post-timeout', type=float, default=3.0,
+                        help='HTTP(S) POST timeout in seconds (default: 3.0)')
+    parser.add_argument('--post-insecure', action='store_true',
+                        help='Disable TLS certificate verification for HTTPS POST')
+    parser.add_argument('--password', default=None,
+                        help='Optional GX password used for login.php session auth')
+    # UDP packet options
+    parser.add_argument('--packet-version', type=int, choices=[1, 2], default=2,
+                        help='UDP socket packet version to emit (default: 2)')
+    # Sensor data options
     parser.add_argument('--mac', default='AA:BB:CC:DD:EE:01',
                         help='Sensor MAC address')
     parser.add_argument('--mfg-id', type=lambda x: int(x, 0),
                         help='Manufacturer ID (hex or decimal)')
-    parser.add_argument('--payload', help='Payload as hex string')
-    parser.add_argument('--rssi', type=int, help='RSSI value (-127 to 0)')
+    parser.add_argument('--mfg-data', help='Manufacturer data as hex string')
+    parser.add_argument('--name', type=str, default=None, help='Device name')
     parser.add_argument('--example', choices=['ruuvi', 'solarsense', 'garnet_soul'],
                         help='Send example data')
+    parser.add_argument('--rssi', type=int, help='RSSI value (-127 to 126)')
+    parser.add_argument('--gw-mac', default=None, help='Gateway MAC address')
     parser.add_argument('--seqnr', type=int, default=0, help='Sequence number')
     parser.add_argument('--repeat', type=int, default=1,
                         help='Number of times to send the packet (default: 1)')
-    parser.add_argument('--seqnr_repeat', type=int, default=-1,
+    parser.add_argument('--seqnr_repeat', type=int, default=None,
                         help='Number of repeats of the same sequence number')
-    parser.add_argument('--interval', type=float, default=-1.0,
+    parser.add_argument('--interval', type=float, default=None,
                         help='Interval between packets in seconds')
-    parser.add_argument('--name', type=str, default=None, 
-                        help='Device name (not used in current packet format)')
 
     args = parser.parse_args()
 
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    addr = (args.host, args.port)
+    if args.rssi is not None and not (-127 <= args.rssi <= 126):
+        parser.error(f"RSSI must be between -127 and 126, got {args.rssi}")
+
+    sock = None
+    addr = None
+    post_url = None
+    http_poster = None
+    if args.transport == 'udp':
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        addr = (args.host, args.port)
+    else:
+        post_url = f"{args.transport}://{args.host}/ble-gw"
+        http_poster = AuthenticatedPoster(
+            host=args.host,
+            insecure_tls=args.post_insecure,
+            timeout=args.post_timeout,
+            password=args.password,
+        )
+
     name = args.name
 
     if args.example == 'ruuvi':
-        interval = args.interval if args.interval > 0 else 1.285
-        seqnr_repeat = args.seqnr_repeat if args.seqnr_repeat >= 0 else 1
+        interval = args.interval if args.interval is not None else 1.285
+        seqnr_repeat = args.seqnr_repeat if args.seqnr_repeat is not None else 1
         def f(s):
-            send_ruuvi_example(sock, addr, s, name)
+            send_example(sock, addr, args.transport, post_url, args.packet_version,
+                         args.gw_mac, http_poster,
+                         build_ruuvi_example(s), name_override=name)
     elif args.example == 'solarsense':
-        interval = args.interval if args.interval > 0 else 0.16
-        seqnr_repeat = args.seqnr_repeat if args.seqnr_repeat >= 0 else 7
+        interval = args.interval if args.interval is not None else 0.16
+        seqnr_repeat = args.seqnr_repeat if args.seqnr_repeat is not None else 7
         def f(s):
-            send_solarsense_example(sock, addr, s, name)
+            send_example(sock, addr, args.transport, post_url, args.packet_version,
+                         args.gw_mac, http_poster,
+                         build_solarsense_example(s), name_override=name)
     elif args.example == 'garnet_soul':
-        interval = args.interval if args.interval > 0 else 0.125
+        interval = args.interval if args.interval is not None else 0.125
+        seqnr_repeat = args.seqnr_repeat if args.seqnr_repeat is not None else 1
         def f(s):
-            send_garnet_soul_example(sock, addr)
-    elif args.mfg_id and args.payload:
-        interval = args.interval if args.interval > 0 else 1.0
-        seqnr_repeat = args.seqnr_repeat if args.seqnr_repeat >= 0 else 1
-        def f(s):
-            send_raw(sock, addr, args.mac, args.mfg_id, args.payload, rssi=args.rssi, name=name)
+            send_example(sock, addr, args.transport, post_url, args.packet_version,
+                         args.gw_mac, http_poster,
+                         build_garnet_soul_example(s), name_override=name)
+    elif args.mfg_id and args.mfg_data:
+        interval = args.interval if args.interval is not None else 1.0
+        seqnr_repeat = args.seqnr_repeat if args.seqnr_repeat is not None else 1
+        if args.transport == 'udp':
+            def f(s):
+                send_raw(sock, addr, args.packet_version, args.mac, args.mfg_id,
+                         args.mfg_data, rssi=args.rssi, gw_mac=args.gw_mac,
+                         name=name)
+        else:
+            def f(s):
+                send_post_raw(http_poster, post_url, args.mac, args.mfg_id, args.mfg_data,
+                              rssi=args.rssi, gw_mac=args.gw_mac,
+                              name=name)
     else:
         parser.print_help()
         print("\nExamples:")
         print("  Send Ruuvi example:")
         print("    ./ble-socket-test.py --example ruuvi")
+        print("  Post Ruuvi example to GX over HTTP:")
+        print("    ./ble-socket-test.py --transport http --host 192.168.1.50 --example ruuvi")
+        print("  Post Ruuvi example to GX over HTTPS:")
+        print("    ./ble-socket-test.py --transport https --host 192.168.1.50 --example ruuvi")
+        print("  Send Ruuvi example as V2 packet:")
+        print("    ./ble-socket-test.py --example ruuvi --packet-version 2")
         print("  Send SolarSense example:")
         print("    ./ble-socket-test.py --example solarsense --repeat 200")
         print("  Send raw Ruuvi format 5:")
-        print("    ./ble-socket-test.py --mfg-id 0x0499 --payload '0500112233...'")
+        print("    ./ble-socket-test.py --mfg-id 0x0499 --mfg-data '0500112233...'")
         return
 
-    for i in range(args.repeat):
-        seqnr = args.seqnr + (i // seqnr_repeat)
-        f(seqnr)
-        if interval > 0 and i < args.repeat - 1:
-            time.sleep(interval)
+    try:
+        for i in range(args.repeat):
+            seqnr = args.seqnr + (i // seqnr_repeat)
+            f(seqnr)
+            if interval > 0 and i < args.repeat - 1:
+                time.sleep(interval)
+    finally:
+        if sock:
+            sock.close()
 
 if __name__ == '__main__':
     main()

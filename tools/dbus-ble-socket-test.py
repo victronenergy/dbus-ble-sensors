@@ -505,7 +505,7 @@ class AuthenticatedPoster:
                 for cookie in jar_cookies:
                     print(f"  {cookie}")
 
-            print("Retrying original POST /ble-gw with authenticated session")
+            print("Retrying original POST /ble-gw/ with authenticated session")
             r_status, r_url, _r_type, r_body = self._open_json(url, msg)
             self._save_persisted_session()
             return r_status, r_url, r_body
@@ -516,7 +516,7 @@ class AuthenticatedPoster:
 
 def send_post_ble_gw(http_poster, url, sensor_mac, mfg_id, payload, rssi=None,
                      gw_mac=None, name=None):
-    """Send one BLE reading to a GX /ble-gw endpoint via HTTP(S) POST."""
+    """Send one BLE reading to a GX /ble-gw/ endpoint via HTTP(S) POST."""
     adv_data = build_adv_data(mfg_id, payload, name=name)
 
     msg = {
@@ -546,7 +546,7 @@ def send_post_ble_gw(http_poster, url, sensor_mac, mfg_id, payload, rssi=None,
 
 def send_post_raw(http_poster, url, sensor_mac, mfg_id, payload_hex,
                   rssi=None, gw_mac=None, name=None):
-    """Send raw manufacturer payload as POST to /ble-gw."""
+    """Send raw manufacturer payload as POST to /ble-gw/."""
     payload = bytes.fromhex(payload_hex)
     send_post_ble_gw(http_poster, url, sensor_mac, mfg_id, payload,
                      rssi=rssi, gw_mac=gw_mac, name=name)
@@ -603,7 +603,7 @@ def main():
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         addr = (args.host, args.port)
     else:
-        post_url = f"{args.transport}://{args.host}/ble-gw"
+        post_url = f"{args.transport}://{args.host}/ble-gw/"
         http_poster = AuthenticatedPoster(
             host=args.host,
             insecure_tls=args.post_insecure,

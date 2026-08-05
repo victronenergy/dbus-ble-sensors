@@ -180,6 +180,64 @@ static int ruuvi_xlate_lum(struct VeItem *root, VeVariant *val, uint64_t rv)
 	return 0;
 }
 
+/*
+ * The Ruuvi Indoor Air Quality Score is not part of the broadcast
+ * payload, only its inputs (PM2.5, CO2) are. It is derived the same
+ * way Ruuvi's own apps do it: scale each pollutant to a 0-100 axis
+ * relative to a clean-air baseline, then combine as a geometric
+ * distance from perfect (100) air. See:
+ * https://docs.ruuvi.com/ruuvi-air-firmware/ruuvi-indoor-air-quality-score-iaqs
+ */
+static int ruuvi_calc_iaqs(struct VeItem *root, VeVariant *val, uint64_t rv)
+{
+	VE_UNUSED(rv);
+
+	struct VeItem *pm25_item;
+	struct VeItem *co2_item;
+	VeVariant pm25v;
+	VeVariant co2v;
+	float pm25;
+	float co2;
+	float dx;
+	float dy;
+	float r;
+
+	pm25_item = veItemByUid(root, "PM25");
+	co2_item = veItemByUid(root, "CO2");
+	if (!pm25_item || !co2_item)
+		return -1;
+
+	veItemLocalValue(pm25_item, &pm25v);
+	veItemLocalValue(co2_item, &co2v);
+
+	if (!veVariantIsValid(&pm25v) || !veVariantIsValid(&co2v))
+		return -1;
+
+	veVariantToFloat(&pm25v);
+	veVariantToFloat(&co2v);
+	pm25 = pm25v.value.Float;
+	co2 = co2v.value.Float;
+
+	if (pm25 < 0)
+		pm25 = 0;
+	if (pm25 > 60)
+		pm25 = 60;
+	if (co2 < 420)
+		co2 = 420;
+	if (co2 > 2300)
+		co2 = 2300;
+
+	dx = pm25 * (100.0f / 60);
+	dy = (co2 - 420) * (100.0f / 1880);
+	r = sqrtf(dx * dx + dy * dy);
+	if (r > 100)
+		r = 100;
+
+	veVariantUn32(val, (uint32_t)(100 - r + 0.5f));
+
+	return 0;
+}
+
 /* Format 6 (Bluetooth 4 compatible) */
 static const struct reg_info ruuvi_format6[] = {
 	{
@@ -262,7 +320,59 @@ static const struct reg_info ruuvi_format6[] = {
 		.name	= "SeqNo",
 		.format	= &veUnitNone,
 	},
+	{
+		.type	= VE_UN8,
+		.flags	= REG_FLAG_CALCULATED,
+		.xlate	= ruuvi_calc_iaqs,
+		.name	= "IAQS",
+		.format	= &veUnitIndex,
+	},
 };
+
+/*
+ * IAQS level boundaries, as documented at:
+ * https://docs.ruuvi.com/ruuvi-air-firmware/ruuvi-indoor-air-quality-score-iaqs
+ */
+static const char *ruuvi_iaqs_quality(uint32_t score)
+{
+	if (score > 90)
+		return "Excellent";
+	if (score > 80)
+		return "Good";
+	if (score > 50)
+		return "Fair";
+	if (score >= 10)
+		return "Poor";
+
+	return "Very poor";
+}
+
+static size_t ruuvi_iaqs_fmt(VeVariant *var, void const *ctx, char *buf,
+			     size_t len)
+{
+	VE_UNUSED(ctx);
+
+	VeVariant v = *var;
+
+	if (!veVariantIsValid(var))
+		return snprintf(buf, len, "%s", "");
+
+	veVariantToN32(&v);
+
+	return snprintf(buf, len, "%u/100 (%s)", v.value.UN32,
+			ruuvi_iaqs_quality(v.value.UN32));
+}
+
+static int ruuvi_air_init(struct VeItem *root, const void *data)
+{
+	VE_UNUSED(data);
+
+	struct VeItem *iaqs = veItemByUid(root, "IAQS");
+	if (iaqs)
+		veItemSetFmt(iaqs, ruuvi_iaqs_fmt, NULL);
+
+	return 0;
+}
 
 static const struct dev_info ruuvi_air = {
 	.dev_class	= &temperature_class,
@@ -273,6 +383,7 @@ static const struct dev_info ruuvi_air = {
 	.regs		= ruuvi_format6,
 	.seqnr_bits	= 8,
 	.seqnr_window	= 30,
+	.init		= ruuvi_air_init,
 };
 
 int ruuvi_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len, enum data_source source)

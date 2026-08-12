@@ -59,6 +59,7 @@ struct reg_info {
 #define REG_FLAG_INVALID	(1 << 1)
 #define REG_FLAG_KEY		(1 << 2)
 #define REG_FLAG_WARN_ALARM	(1 << 3)
+#define REG_FLAG_CALCULATED	(1 << 4)
 
 struct dev_class {
 	const char	*role;

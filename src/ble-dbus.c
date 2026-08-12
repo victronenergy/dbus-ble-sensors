@@ -328,6 +328,9 @@ static int load_int(VeVariant *val, const struct reg_info *reg,
 static int load_reg(const struct reg_info *reg, VeVariant *val,
 		    const uint8_t *buf, int len, struct VeItem *root)
 {
+	if (reg->flags & REG_FLAG_CALCULATED)
+		return reg->xlate ? reg->xlate(root, val, 0) : -1;
+
 	buf += reg->offset;
 	len -= reg->offset;
 

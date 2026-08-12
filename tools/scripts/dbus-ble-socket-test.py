@@ -3,18 +3,17 @@
 Test script for sending BLE sensor data via UDP socket.
 """
 
+import argparse
+import base64
+import json
+import socket
+import ssl
+import struct
 import sys
 import time
-import socket
-import struct
-import argparse
-import json
-import os
-import ssl
+import urllib.error
 import urllib.parse
 import urllib.request
-import urllib.error
-import http.cookiejar
 
 """
 PACKET FORMATS
@@ -367,52 +366,35 @@ def send_raw(sock, addr, packet_version, sensor_mac, mfg_id, payload_hex,
           f"payload={payload_hex}")
 
 
-class AuthenticatedPoster:
-    """HTTP(S) poster with optional login.php password session auth."""
+class HttpPoster:
+    """HTTP(S) poster with optional token-based Basic Auth."""
 
-    def __init__(self, host, insecure_tls=False, timeout=3.0, password=None):
+    def __init__(self, host, insecure_tls=False, timeout=3.0, token=None):
         self.host = host
         self.insecure_tls = insecure_tls
         self.timeout = timeout
-        self.password = password
-        self.cookiejar_path = self._cookiejar_path_for_host(host)
-        self.cookiejar = http.cookiejar.MozillaCookieJar(self.cookiejar_path)
-
-        self._load_persisted_session()
+        self.token = token
 
         handlers = []
-        handlers.append(urllib.request.HTTPCookieProcessor(self.cookiejar))
         if insecure_tls:
             context = ssl._create_unverified_context()
             handlers.append(urllib.request.HTTPSHandler(context=context))
 
         self.opener = urllib.request.build_opener(*handlers)
 
-    @staticmethod
-    def _cookiejar_path_for_host(host):
-        safe_host = ''.join(c if c.isalnum() or c in '-._' else '_' for c in host)
-        base_dir = os.path.expanduser('~/.cache/dbus-ble-socket-test')
-        return os.path.join(base_dir, f'session-{safe_host}.cookies.txt')
-
-    def _load_persisted_session(self):
-        if not os.path.exists(self.cookiejar_path):
-            return
-        try:
-            self.cookiejar.load(ignore_discard=True, ignore_expires=True)
-            print(f"Loaded persisted session cookies from {self.cookiejar_path}")
-        except (OSError, http.cookiejar.LoadError) as exc:
-            print(f"Warning: failed to load persisted session cookies: {exc}")
-
-    def _save_persisted_session(self):
-        try:
-            os.makedirs(os.path.dirname(self.cookiejar_path), exist_ok=True)
-            self.cookiejar.save(ignore_discard=True, ignore_expires=True)
-        except OSError as exc:
-            print(f"Warning: failed to persist session cookies: {exc}")
-
-    def _open_json(self, url, msg):
+    def post_json(self, url, msg, auth=None):
         body = json.dumps(msg).encode('utf-8')
+        """POST JSON to url. auth can be 'user:password' for Basic Auth override."""
         headers = {'Content-Type': 'application/json; charset=utf-8'}
+
+        # Use explicit auth if provided, otherwise fall back to token
+        credentials_str = auth if auth is not None else self.token
+        if credentials_str is not None:
+            parts = credentials_str.split(':', 1)
+            if len(parts) != 2:
+                raise RuntimeError('Invalid auth format, expected user:password')
+            credentials = f"{parts[0]}:{parts[1]}".encode()
+            headers['Authorization'] = 'Basic ' + base64.b64encode(credentials).decode('ascii')
 
         req = urllib.request.Request(
             url,
@@ -423,95 +405,48 @@ class AuthenticatedPoster:
 
         with self.opener.open(req, timeout=self.timeout) as resp:
             final_url = resp.geturl()
-            content_type = resp.headers.get('Content-Type', '')
             resp_body = resp.read().decode('utf-8', errors='replace')
-            return resp.status, final_url, content_type, resp_body
+            return resp.status, final_url, resp_body
 
-    @staticmethod
-    def _is_login_url(url):
-        parsed = urllib.parse.urlparse(url)
-        return 'login.php' in parsed.path
 
-    def _post_login_password(self, login_url):
-        if not self.password:
-            raise RuntimeError('Authentication redirected to login.php but no --password was provided')
+def create_token(host, device_id, password=None, insecure_tls=False, timeout=3.0):
+    """Create a new token via the /ble-gw/ endpoint."""
+    url = f"https://{host}/ble-gw/"
+    msg = {"generate_token": {"device_id": device_id}}
 
-        body = urllib.parse.urlencode({
-            'username': 'remoteconsole',
-            'password': self.password,
-        }).encode('utf-8')
+    poster = HttpPoster(host, insecure_tls=insecure_tls, timeout=timeout)
+    auth = f"remoteconsole:{password}" if password else None
 
-        req = urllib.request.Request(
-            login_url,
-            data=body,
-            headers={'Content-Type': 'application/x-www-form-urlencoded'},
-            method='POST'
-        )
+    print(f"Creating token for device_id '{device_id}'...")
+    if not password:
+        print("(no password provided, assuming GX is in pairing mode)")
+    print("POST JSON:")
+    print(json.dumps(msg, separators=(',', ':'), sort_keys=True))
+    print(f"POST {url}");
 
-        class _NoRedirect(urllib.request.HTTPRedirectHandler):
-            def redirect_request(self, req, fp, code, msg, headers, newurl):
-                return None
+    try:
+        status, final_url, resp_body = poster.post_json(url, msg, auth=auth)
+        print(f"-> HTTP {status}")
+    except urllib.error.HTTPError as e:
+        print(f"-> Error: HTTP {e.code} - {e.reason}", file=sys.stderr)
+        sys.exit(1)
+    except urllib.error.URLError as e:
+        print(f"-> Error: {e.reason}", file=sys.stderr)
+        sys.exit(1)
 
-        login_handlers = [
-            urllib.request.HTTPCookieProcessor(self.cookiejar),
-            _NoRedirect(),
-        ]
-        if self.insecure_tls:
-            login_handlers.append(urllib.request.HTTPSHandler(context=ssl._create_unverified_context()))
-
-        no_redirect_opener = urllib.request.build_opener(*login_handlers)
-
-        try:
-            with no_redirect_opener.open(req, timeout=self.timeout) as resp:
-                _ = resp.read()
-                set_cookie_headers = resp.headers.get_all('Set-Cookie') or []
-                return resp.status, resp.geturl(), set_cookie_headers
-        except urllib.error.HTTPError as exc:
-            # Expected for 30x when redirect following is disabled. Treat as successful login step.
-            if exc.code in (301, 302, 303, 307, 308):
-                _ = exc.read()
-                set_cookie_headers = exc.headers.get_all('Set-Cookie') or []
-                location = exc.headers.get('Location')
-                final_url = urllib.parse.urljoin(login_url, location) if location else login_url
-                return exc.code, final_url, set_cookie_headers
-            print(f"Error: HTTP {exc.code} - {exc.reason}", file=sys.stderr)
-            raise
-
-    def _dump_cookiejar(self):
-        cookies = []
-        for cookie in self.cookiejar:
-            cookies.append(f"{cookie.name}={cookie.value}; domain={cookie.domain}; path={cookie.path}")
-        return cookies
-
-    def post_json(self, url, msg):
-        status, final_url, _content_type, resp_body = self._open_json(url, msg)
-
-        if final_url != url and self._is_login_url(final_url):
-            print(f"Authentication required: redirected to {final_url}")
-            print("Submitting password to login.php")
-            login_status, login_final_url, set_cookie_headers = self._post_login_password(final_url)
-            print(f"Authentication succeeded (HTTP {login_status}), redirect target: {login_final_url}")
-
-            if set_cookie_headers:
-                print("Cookies returned by login response:")
-                for cookie in set_cookie_headers:
-                    print(f"  Set-Cookie: {cookie}")
-            else:
-                print("No Set-Cookie headers returned by login response")
-
-            jar_cookies = self._dump_cookiejar()
-            if jar_cookies:
-                print("Session cookies currently stored:")
-                for cookie in jar_cookies:
-                    print(f"  {cookie}")
-
-            print("Retrying original POST /ble-gw/ with authenticated session")
-            r_status, r_url, _r_type, r_body = self._open_json(url, msg)
-            self._save_persisted_session()
-            return r_status, r_url, r_body
-
-        self._save_persisted_session()
-        return status, final_url, resp_body
+    try:
+        resp_json = json.loads(resp_body)
+        token_name = resp_json.get('token_name')
+        token_password = resp_json.get('password')
+        if token_name and token_password:
+            print(f"\nToken created successfully!")
+            print(f"  token_name: {token_name}")
+            print(f"  password:   {token_password}")
+            print(f"\nUse with: --token '{token_name}:{token_password}'")
+        else:
+            print(f"Response: {resp_body}")
+    except json.JSONDecodeError:
+        print(f"Response: {resp_body}")
 
 
 def send_post_ble_gw(http_poster, url, sensor_mac, mfg_id, payload, rssi=None,
@@ -536,12 +471,20 @@ def send_post_ble_gw(http_poster, url, sensor_mac, mfg_id, payload, rssi=None,
 
     print("POST JSON:")
     print(json.dumps(msg, separators=(',', ':'), sort_keys=True))
+    print(f"POST {url}")
 
-    status, final_url, resp_body = http_poster.post_json(url, msg)
-    print(f"POST {url} -> HTTP {status}")
-    if final_url != url:
-        raise RuntimeError(f'Unexpected redirect to {final_url}')
-    print(f"Response: {resp_body}")
+    try:
+        status, final_url, resp_body = http_poster.post_json(url, msg)
+        print(f"-> HTTP {status}")
+        if final_url != url:
+            raise RuntimeError(f'Unexpected redirect to {final_url}')
+        print(f"Response: {resp_body}")
+    except urllib.error.HTTPError as e:
+        print(f"-> Error: HTTP {e.code} - {e.reason}", file=sys.stderr)
+        sys.exit(1)
+    except urllib.error.URLError as e:
+        print(f"-> Error: {e.reason}", file=sys.stderr)
+        sys.exit(1)
 
 
 def send_post_raw(http_poster, url, sensor_mac, mfg_id, payload_hex,
@@ -567,7 +510,11 @@ def main():
     parser.add_argument('--post-insecure', action='store_true',
                         help='Disable TLS certificate verification for HTTPS POST')
     parser.add_argument('--password', default=None,
-                        help='Optional GX password used for login.php session auth')
+                        help='GX remoteconsole password (optional with --create-token if GX is in pairing mode)')
+    parser.add_argument('--token', default=None,
+                        help='GX token for auth in the form token_name:password')
+    parser.add_argument('--create-token', metavar='DEVICE_ID', default=None,
+                        help='Create a new token with given device_id and exit')
     # UDP packet options
     parser.add_argument('--packet-version', type=int, choices=[1, 2], default=2,
                         help='UDP socket packet version to emit (default: 2)')
@@ -592,6 +539,17 @@ def main():
 
     args = parser.parse_args()
 
+    # Handle --create-token action
+    if args.create_token is not None:
+        create_token(
+            host=args.host,
+            device_id=args.create_token,
+            password=args.password,
+            insecure_tls=args.post_insecure,
+            timeout=args.post_timeout,
+        )
+        return
+
     if args.rssi is not None and not (-127 <= args.rssi <= 126):
         parser.error(f"RSSI must be between -127 and 126, got {args.rssi}")
 
@@ -604,11 +562,11 @@ def main():
         addr = (args.host, args.port)
     else:
         post_url = f"{args.transport}://{args.host}/ble-gw/"
-        http_poster = AuthenticatedPoster(
+        http_poster = HttpPoster(
             host=args.host,
             insecure_tls=args.post_insecure,
             timeout=args.post_timeout,
-            password=args.password,
+            token=args.token,
         )
 
     name = args.name
@@ -652,12 +610,14 @@ def main():
         print("\nExamples:")
         print("  Send Ruuvi example:")
         print("    ./ble-socket-test.py --example ruuvi")
-        print("  Post Ruuvi example to GX over HTTP:")
-        print("    ./ble-socket-test.py --transport http --host 192.168.1.50 --example ruuvi")
-        print("  Post Ruuvi example to GX over HTTPS:")
-        print("    ./ble-socket-test.py --transport https --host 192.168.1.50 --example ruuvi")
         print("  Send Ruuvi example as V2 packet:")
         print("    ./ble-socket-test.py --example ruuvi --packet-version 2")
+        print("  Post Ruuvi example to GX over HTTP:")
+        print("    ./ble-socket-test.py  --example ruuvi --transport http --host 192.168.1.50")
+        print("  Create a token for use with --token:")
+        print("    ./ble-socket-test.py --transport https --host 192.168.1.50 --post-insecure --create-token my_device --password the_gx_password")
+        print("  Post Ruuvi example to GX over HTTPS with token based authentication:")
+        print("    ./ble-socket-test.py --transport https --host 192.168.1.50 --post-insecure --token token_name:token_password --example ruuvi")
         print("  Send SolarSense example:")
         print("    ./ble-socket-test.py --example solarsense --repeat 200")
         print("  Send raw Ruuvi format 5:")

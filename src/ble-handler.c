@@ -57,7 +57,7 @@ int ble_handle_mfg(const bdaddr_t *bdaddr, uint16_t mfg, const uint8_t *buf, int
 	return 0;
 }
 
-int ble_parse_adv(const bdaddr_t *bdaddr, const uint8_t *buf, int len)
+int ble_parse_adv(const bdaddr_t *bdaddr, const uint8_t *buf, int len, enum data_source source)
 {
 	while (len >= 2) {
 		int adlen, adtyp;
@@ -82,7 +82,7 @@ int ble_parse_adv(const bdaddr_t *bdaddr, const uint8_t *buf, int len)
 				ble_handle_mfg(bdaddr,
 					bt_get_le16(buf),
 					buf + 2, adlen - 2,
-					DATA_SOURCE_BLE);
+					source);
 			break;
 		}
 

@@ -21,6 +21,7 @@ int ble_handle_mfg(const bdaddr_t *bdaddr, uint16_t mfg_id, const uint8_t *data,
 		   enum data_source source);
 void ble_handle_name(const bdaddr_t *bdaddr, const uint8_t *buf, int len);
 
-int ble_parse_adv(const bdaddr_t *bdaddr, const uint8_t *buf, int len);
+int ble_parse_adv(const bdaddr_t *bdaddr, const uint8_t *buf, int len,
+		  enum data_source source);
 
 #endif

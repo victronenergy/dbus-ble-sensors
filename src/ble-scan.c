@@ -97,7 +97,7 @@ static int ble_scan_parse_adv(const le_advertising_info *adv)
 	if (!ble_scan_enabled)
 		return 0;
 
-	ble_parse_adv(&adv->bdaddr, adv->data, adv->length);
+	ble_parse_adv(&adv->bdaddr, adv->data, adv->length, DATA_SOURCE_BLE);
 
 	return 0;
 }

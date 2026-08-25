@@ -144,11 +144,8 @@ static void ble_socket_parse(const uint8_t *buf, int len)
 		payload_len = len - 14;
 		payload	    = buf + 14;
 
-		ble_parse_adv(&bdaddr, payload, payload_len);
+		ble_parse_adv(&bdaddr, payload, payload_len, DATA_SOURCE_GATEWAY);
 	}
-
-
-	return;
 }
 
 static void ble_socket_read(evutil_socket_t fd, short events, void *arg)

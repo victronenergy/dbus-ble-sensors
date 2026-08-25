@@ -1,0 +1,18 @@
+[
+  {
+    "fname": "victron-ble-bridge-pro.js",
+    "title": "Victron BLE Bridge (Gen2 Pro / Gen3)",
+    "description": "Act as a BLE Bridge that forwards Victron BLE data to a GX device. (Requires firmware version 1.5.0 or newer)",
+    "tags": [
+      "ble"
+    ]
+  },
+  {
+    "fname": "victron-ble-bridge-plus.js",
+    "title": "Victron BLE Bridge (Gen2 Plus)",
+    "description": "Act as a BLE Bridge that forwards Victron BLE data to a GX device. (Requires firmware version 1.5.0 or newer)",
+    "tags": [
+      "ble"
+    ]
+  }
+]

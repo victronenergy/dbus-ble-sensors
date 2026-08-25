@@ -55,7 +55,7 @@ static struct VeSettingProperties dedup_window_props = {
 
 static int dedup_window_ticks = 2 * TICKS_PER_SEC;
 
-static const char *data_source_str[] = { "Bluetooth LE", "BLE Gateway", "None" };
+static const char *data_source_str[] = { "Bluetooth LE", "BLE Bridge", "None" };
 
 static veBool readOnlySetValue(struct VeItem *item, void *ctx, VeVariant *variant)
 {

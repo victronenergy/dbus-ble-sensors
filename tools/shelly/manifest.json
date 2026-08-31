@@ -1,16 +1,8 @@
 [
   {
-    "fname": "victron-ble-bridge-pro.js",
-    "title": "Victron BLE Bridge (Gen2 Pro / Gen3)",
-    "description": "Act as a BLE Bridge that forwards Victron BLE data to a GX device. (Requires firmware version 1.5.0 or newer)",
-    "tags": [
-      "ble"
-    ]
-  },
-  {
-    "fname": "victron-ble-bridge-plus.js",
-    "title": "Victron BLE Bridge (Gen2 Plus)",
-    "description": "Act as a BLE Bridge that forwards Victron BLE data to a GX device. (Requires firmware version 1.5.0 or newer)",
+    "fname": "victron-ble-bridge.js",
+    "title": "Victron BLE Bridge",
+    "description": "Act as a BLE Bridge that forwards BLE advertisement data to a GX device. This requires firmware version 1.5.0 or newer.\n\nOn Gen2 Plus devices (that do not support Virtual Components), a venus-host key needs to be made in the KVS store with the hostname of the GX device to connect to. The script should be started when this is set and the GX device is placed in pairing mode.\n\nOn Gen2 Pro, Gen3 and Gen4 devices, Virtual Components are supported and the device home page will show the status, an element to set the address of the GX device to connect to and a button to start the authentication process. This should be pressed when the GX is placed in pairing mode.",
     "tags": [
       "ble"
     ]

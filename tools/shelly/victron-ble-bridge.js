@@ -3,15 +3,20 @@
  *
  * Continuously scans BLE advertisements and forwards packets
  * immediately via HTTP POST.
- * 
- * Designed for Shelly Gen2 Pro and Gen3 devices with BLE.
- * Not compatible with Gen1 and Gen2 plus Shelly devices.
- * 
- * When this script, the necessary UI components are created on the home page of the Shelly web interface.
- * Fill in the venus-host (and press save), put the GX device in pairing mode and press the 
- * "Authenticate" button. When the authentication is successful, a restart of the script (after a reboot 
- * of the Shelly device) does not require a re-authentication as long as the script is not deleted.
  *
+ * Compatible with all Shelly Gen2 and Gen3 devices with BLE.
+ * Not compatible with Gen1 Shelly devices.
+ *
+ * On Pro/Gen3 devices (with Virtual Components support):
+ *   UI components are created on the home page of the Shelly web interface.
+ *   Fill in the venus-host, put the GX device in pairing mode and press
+ *   the "Authenticate" button.
+ *
+ * On Plus devices (without Virtual Components support):
+ *   Configuration via KVS (Advanced -> KVS in web UI):
+ *   - venus-host: Hostname or IP of Venus device (e.g., "venus.local")
+ *   - (optional) venus-password: GX password, cleared after successful auth
+ *   Either put your GX device in pairing mode (preferred), or set venus-password.
  */
 
 /************ USER CONFIG ************/
@@ -21,18 +26,23 @@ const DBG = false;
 /************ CONSTANTS ************/
 const POST_INTERVAL_MS = 2000;
 const MAX_DEVICES_PER_POST = 25;
+const TOKEN_STORAGE_KEY = 'victron_bletoken';
 /************ CONSTANTS ************/
 
 let gwMacNoColons = "000000000000";
 let gwMacWithColons = "00:00:00:00:00:00";
 
+let venusHost = null;  // Used in KVS mode
 let tokenAuthBase64 = null;
+let usedKvsPassword = false;
 let bleAdvQueue = {};
-let bleAdvQueueCount = 0;  // Cache queue size
+let bleAdvQueueCount = 0;
 let postTimer = null;
 let postInProgress = false;
 let operational = false;
 
+// Virtual Components mode variables
+let useVirtualComponents = false;
 let statusLabelVcId = null;
 let venusHostVcId = null;
 let gxPasswordVcId = null;
@@ -49,21 +59,31 @@ let debugEnabledHandle = null;
 let numberDevicesHandle = null;
 let authMethodHandle = null;
 
+function debugEnabled() {
+    return DBG || (debugEnabledHandle && debugEnabledHandle.getValue());
+}
+
+function setStatus(msg) {
+    if (statusLabelHandle) {
+        statusLabelHandle.setValue(msg);
+    }
+}
+
 function updateGroupMembership() {
-    if (gatewayGroupVcId === null) return;
+    if (!gatewayGroupVcId) return;
 
     let memberKeys = [];
     memberKeys.push('text:' + statusLabelVcId);
     memberKeys.push('text:' + venusHostVcId);
 
-    if (!tokenAuthBase64){
+    if (!tokenAuthBase64) {
         memberKeys.push('button:' + generateTokenVcId);
     }
 
     if (!tokenAuthBase64 && authMethodHandle && authMethodHandle.getValue() === 'password') {
         memberKeys.push('text:' + gxPasswordVcId);
     }
-    
+
     if (debugEnabled()) {
         memberKeys.push('enum:' + authMethodVcId);
         memberKeys.push('boolean:' + debugEnabledVcId);
@@ -76,53 +96,104 @@ function updateGroupMembership() {
     });
 }
 
-function debugEnabled() {
-    return DBG || (debugEnabledHandle && debugEnabledHandle.getValue());
-}
-
-function setStatus(msg, forcePrint) {
-    if (forcePrint || debugEnabled()) print(msg);
-    if (statusLabelHandle !== null) {
-        statusLabelHandle.setValue(msg);
-    }
-}
-
 function handleGenerateTokenResponse(res, errCode, errMsg) {
+    postInProgress = false;
+
     if (errCode !== 0) {
-        setStatus('Token gen failed: ' + errCode, true);
+        print('= Victron BLE Bridge ERROR ===');
+        print('=== Authentication failed: ' + errCode + ' - ' + errMsg);
+        print('=== Is the venus-host correct, the Venus device running, accessible and in pairing mode?');
+        print('=== Verify in the Venus UI: Settings -> Integrations -> Bluetooth Sensors -> Advanced -> Pairing Mode');
+        if (!useVirtualComponents) {
+            print('=== Verify in the Shelly web UI: Advanced -> KVS -> venus-host');
+            print('=== STOPPING SCRIPT');
+            die();
+        }
+        setStatus('Authentication failed: ' + errCode);
         return;
     }
+
     if (debugEnabled()) {
-        print('Full response object: ' + JSON.stringify(res));
+        print('Authentication response: ' + JSON.stringify(res));
     }
+
     if (!res || res.code < 200 || res.code >= 300) {
+        print('= Victron BLE Bridge ERROR ===');
+        print('=== Authentication HTTP error: ' + (res ? res.code : 'no response'));
+        if (debugEnabled() && res && res.body) {
+            print('=== Response body: ' + res.body);
+        }
+        print('=== Is the venus-host correct, the Venus device running, accessible and in pairing mode?');
+        print('=== Verify in the Venus UI: Settings -> Integrations -> Bluetooth Sensors -> Advanced -> Pairing Mode');
+        if (!useVirtualComponents) {
+            print('=== Verify in the Shelly web UI: Advanced -> KVS -> venus-host');
+            print('=== STOPPING SCRIPT');
+            die();
+        }
         if (authMethodHandle && authMethodHandle.getValue() === 'password') {
-            setStatus('Authentication failed: HTTP ' + (res ? res.code : 'error') + '. Make sure that the GX password is correct', true);
+            setStatus('Authentication failed: HTTP ' + (res ? res.code : 'error') + '. Make sure that the GX password is correct');
         } else {
-            setStatus('Authentication failed: HTTP ' + (res ? res.code : 'error') + '. Make sure that the GX is in pairing mode', true);
+            setStatus('Authentication failed: HTTP ' + (res ? res.code : 'error') + '. Make sure that the GX is in pairing mode');
         }
         return;
     }
+
     try {
         let data = JSON.parse(res.body);
         if (data.token_name && data.password) {
             let tokenAuth = data.token_name + ':' + data.password;
-            Script.storage.setItem('victron_bletoken', tokenAuth);
             tokenAuthBase64 = btoa(tokenAuth);
+
+            // Store token in Script.storage
+            Script.storage.setItem(TOKEN_STORAGE_KEY, tokenAuth);
+
+            print('= Victron BLE Bridge ===');
+            print('=== Authentication successful, starting BLE scanner...');
+            if (!useVirtualComponents && usedKvsPassword) {
+                // Clear venus-password from KVS if we used one
+                Shelly.call('KVS.Set', {
+                    key: 'venus-password',
+                    value: ''
+                }, function (setRes, setErr) {
+                    if (setErr !== 0) {
+                        print('=== WARNING: Failed to clear KVS password: ' + setErr);
+                    } else {
+                        print('=== venus-password cleared');
+                    }
+                });
+                usedKvsPassword = false;
+            }
             if (gxPasswordHandle) gxPasswordHandle.setValue('');
             updateGroupMembership();
             setStatus('Authentication OK, starting BLE...');
             startBLEScanning();
         } else {
-            setStatus('Invalid token response');
+            print('= Victron BLE Bridge ERROR ===');
+            print('=== Invalid authentication response - missing token_name or password');
+            print('=== Venus device needs to have at least firmware version 3.80');
+            if (!useVirtualComponents) {
+                print('=== STOPPING SCRIPT');
+                die();
+            }
+            setStatus('Invalid authentication response');
         }
     } catch (e) {
-        setStatus('Token parse error');
+        print('= Victron BLE Bridge ERROR ===');
+        print('=== Failed to parse authentication response: ' + e.message);
+        print('=== Venus device needs to have at least firmware version 3.80');
+        if (!useVirtualComponents) {
+            print('=== STOPPING SCRIPT');
+            die();
+        }
+        setStatus('Authentication parse error');
     }
 }
 
 function generateToken(host, password) {
+    print('= Victron BLE Bridge ===');
+    print('=== Authenticating with Venus host...');
     setStatus('Authenticating...');
+
     let url = 'https://' + host + '/ble-gw/';
     let authString = 'remoteconsole:' + password;
     let auth = btoa(authString);
@@ -133,8 +204,6 @@ function generateToken(host, password) {
     });
 
     if (debugEnabled()) {
-        print('Auth string length: ' + authString.length);
-        print('Auth header: Basic ' + auth);
         print('URL: ' + url);
         print('Body: ' + body);
     }
@@ -154,33 +223,57 @@ function generateToken(host, password) {
 
 function handlePostBLEDataResponse(res, errCode) {
     postInProgress = false;
+
     if (errCode !== 0 || !res || res.code < 200 || res.code >= 300) {
         operational = false;
-        setStatus('BLE POST failed: ' + (res ? 'HTTP ' + res.code : 'err ' + errCode), true);
-        if (debugEnabled() && res) print('BLE POST response: ' + JSON.stringify(res));
 
-        // If unauthorized (403), clear tokens and require re-authentication
+        print('= Victron BLE Bridge ERROR ===');
+        print('=== BLE POST failed: ' + (res ? 'HTTP ' + res.code : 'err ' + errCode));
+        if (debugEnabled() && res) {
+            print('=== Response: ' + JSON.stringify(res));
+        }
         if (res && res.code === 403) {
             tokenAuthBase64 = null;
-            Script.storage.removeItem('victron_bletoken');
-            updateGroupMembership();
+            Script.storage.removeItem(TOKEN_STORAGE_KEY);
             stopBLEScanning();
-            setStatus('Authentication failed - enable pairing mode and authenticate again', true);
+
+            print('=== Authentication invalid (403 Unauthorized)');
+            if (debugEnabled() && res.body) {
+                print('=== Response body: ' + res.body);
+            }
+            if (!useVirtualComponents) {
+                print('=== To re-authenticate:');
+                print('=== 1. Put GX device in pairing mode');
+                print('=== 2. Restart this script');
+                print('=== STOPPING SCRIPT');
+                die();
+            }
+            updateGroupMembership();
+            setStatus('Authentication failed - enable pairing mode and authenticate again');
+        } else {
+            setStatus('BLE POST failed: ' + (res ? 'HTTP ' + res.code : 'err ' + errCode));
         }
     } else {
         if (debugEnabled()) {
             print('BLE POST success: HTTP ' + res.code);
-            if (res.body) print('BLE POST response body: ' + res.body);
+            if (res.body) print('Response: ' + res.body);
         }
         if (!operational) {
             operational = true;
+            print('= Victron BLE Bridge ===');
+            print('=== Bridge operational');
             setStatus('BLE Bridge operational');
         }
     }
 }
 
+function getVenusHostValue() {
+    return venusHostHandle ? venusHostHandle.getValue() : venusHost;
+}
+
 function postBLEData() {
-    if (!tokenAuthBase64 || !venusHostHandle) return;
+    let host = getVenusHostValue();
+    if (!tokenAuthBase64 || !host) return;
     if (bleAdvQueueCount === 0) return;
     if (postInProgress) {
         if (debugEnabled()) {
@@ -194,6 +287,7 @@ function postBLEData() {
     if (numberDevicesHandle) {
         numberDevicesHandle.setValue(bleAdvQueueCount);
     }
+
     let body = JSON.stringify({
         data: {
             gw_mac: gwMacWithColons,
@@ -203,11 +297,11 @@ function postBLEData() {
     bleAdvQueue = {};
     bleAdvQueueCount = 0;
 
-    let url = 'https://' + venusHostHandle.getValue() + '/ble-gw/';
+    let url = 'https://' + host + '/ble-gw/';
 
     if (debugEnabled()) {
-        print('BLE POST URL: ' + url);
-        print('BLE POST body: ' + body);
+        print('POST URL: ' + url);
+        print('POST body length: ' + body.length + ' bytes');
     }
 
     Shelly.call('HTTP.Request', {
@@ -225,35 +319,37 @@ function postBLEData() {
 
 function onBLEScan(ev, res) {
     if (ev === BLE.Scanner.SCAN_STOPPED) {
-        setStatus('BLE scanning stopped', true);
+        print('= Victron BLE Bridge ===');
+        print('=== BLE scanning stopped');
+        setStatus('BLE scanning stopped');
         if (postTimer !== null) {
             startBLEScanning();
         }
         return;
     }
     if (ev === BLE.Scanner.SCAN_STARTED) {
-        setStatus('BLE scanning started', true);
+        print('= Victron BLE Bridge ===');
+        print('=== BLE scanning started');
+        setStatus('BLE scanning started');
         return;
     }
-    if (ev !== BLE.Scanner.SCAN_RESULT || !res || !res.addr || (!res.advData && !res.scanRsp)) return;
-    
+    if (ev !== BLE.Scanner.SCAN_RESULT || !res || !res.addr) return;
+
+    if (!res.advData && !res.scanRsp) return;
+
     let data = (res.advData ? btoh(res.advData) : '') + (res.scanRsp ? btoh(res.scanRsp) : '');
 
-    // Get existing entry or check if queue is full
     let entry = bleAdvQueue[res.addr];
     if (entry) {
-        // Update existing entry
         entry.rssi = res.rssi;
         entry.data = data;
     } else if (bleAdvQueueCount < MAX_DEVICES_PER_POST) {
-        // Add new entry
         bleAdvQueue[res.addr] = {
             rssi: res.rssi,
             data: data
         };
         bleAdvQueueCount++;
     }
-    // else: queue full, silently drop new device
 }
 
 function stopBLEScanning() {
@@ -265,16 +361,83 @@ function stopBLEScanning() {
 }
 
 function startBLEScanning() {
-    BLE.Scanner.Subscribe(onBLEScan);
     BLE.Scanner.Stop();
+    BLE.Scanner.Subscribe(onBLEScan);
     BLE.Scanner.Start({ duration_ms: BLE.Scanner.INFINITE_SCAN, active: true });
 
     if (postTimer === null) {
         postTimer = Timer.set(POST_INTERVAL_MS, true, postBLEData);
     }
 
-    setStatus('BLE scanning active', true);
+    print('= Victron BLE Bridge ===');
+    if (BLE.Scanner.isRunning()) {
+        print('=== BLE scanning started');
+        setStatus('BLE scanning started');
+    } else {
+        print('=== BLE scanning starting');
+        setStatus('BLE scanning starting');
+    }
 }
+
+/************ KVS MODE FUNCTIONS ************/
+
+function handleVenusHostKvs(res, errCode, errMsg) {
+    if (errCode !== 0) {
+        print('= Victron BLE Bridge ERROR ===');
+        print('=== Failed to read venus-host from KVS: ' + errCode + ' - ' + errMsg);
+        print('=== To fix: Go to Advanced -> KVS in the web UI');
+        print('=== Add key "venus-host" with your Venus hostname (e.g., venus.local or IP address)');
+        print('=== Then restart this script.');
+        print('=== STOPPING SCRIPT');
+        die();
+    }
+
+    venusHost = res.value;
+    if (!venusHost) {
+        print('= Victron BLE Bridge ERROR ===');
+        print('=== venus-host is empty');
+        print('=== To fix: Go to Advanced -> KVS in the web UI');
+        print('=== Set "venus-host" to your Venus hostname (e.g., venus.local or IP address)');
+        print('=== Then restart this script.');
+        print('=== STOPPING SCRIPT');
+        die();
+    }
+
+    print('= Victron BLE Bridge ===');
+    print('=== Venus host: ' + venusHost);
+
+    // Check if we have a stored token first
+    let tokenAuth = Script.storage.getItem(TOKEN_STORAGE_KEY);
+    if (tokenAuth) {
+        tokenAuthBase64 = btoa(tokenAuth);
+        print('=== Using stored authentication, starting BLE scanner...');
+        startBLEScanning();
+    } else {
+        print('=== Authenticating with Venus host');
+        // No stored token, check if venus-password is set in KVS
+        Shelly.call('KVS.Get', { key: 'venus-password' }, function (pwRes, pwErr) {
+            let password = '';
+            if (pwErr === 0 && pwRes && pwRes.value) {
+                password = pwRes.value;
+                usedKvsPassword = true;
+                print('=== Using password from KVS...');
+            } else {
+                print('=== No password in KVS, assuming GX is in pairing mode...');
+            }
+            generateToken(venusHost, password);
+        });
+    }
+}
+
+function initKvsMode() {
+    print('= Victron BLE Bridge ===');
+    print('=== Shelly MAC: ' + gwMacWithColons);
+    print('=== Loading venus-host from KVS...');
+
+    Shelly.call('KVS.Get', { key: 'venus-host' }, handleVenusHostKvs);
+}
+
+/************ VIRTUAL COMPONENTS MODE FUNCTIONS ************/
 
 function ensureVirtualComponents(manifest, done) {
     var VC_HELPER_DELAY_MS = 150;
@@ -478,7 +641,6 @@ function ensureVirtualComponents(manifest, done) {
                 print("Setting group " + key + " members: " + JSON.stringify(members));
             }
 
-            // Store group ID if group has a key
             if (group.key) {
                 rememberGroup(group, group.id);
             }
@@ -558,7 +720,7 @@ function ensureVirtualComponents(manifest, done) {
 
     readExistingPage(0, function () {
         ensureList(0, function () {
-            state.existing = null;  // no longer needed
+            state.existing = null;
             ensureGroup(0, function () {
                 done(state.ok, {
                     ids: state.ids,
@@ -572,23 +734,32 @@ function ensureVirtualComponents(manifest, done) {
 
 function handleGenerateTokenButtonPress() {
     if (debugEnabled()) {
-        print('Generate Token button pressed!');
+        print('Authenticate button pressed!');
     }
-    if (venusHostHandle !== null && gxPasswordHandle !== null) {
-        let host = venusHostHandle.getValue();
+    if (venusHostHandle && gxPasswordHandle) {
+        let venusHost = venusHostHandle.getValue();
         let pass = gxPasswordHandle.getValue();
-        if (!host) {
+        if (!venusHost) {
+            print('= Victron BLE Bridge ERROR ===');
+            print('=== venus-host is empty');
+            print('=== To fix: Go to the Shelly web UI, Virtual Components, and set the venus-host field');
+            print('=== Then press the Authenticate button again.');
             setStatus('Venus host required');
         } else {
+            print('= Victron BLE Bridge ===');
+            print('=== Venus host: ' + venusHost);
+            print('=== Authenticating with Venus host');
             setStatus('Authenticating with Venus host...');
-            generateToken(host, pass || '');
+            generateToken(venusHost, pass || '');
         }
     }
 }
 
 function handleVirtualComponentsReady(ok, vc) {
     if (!ok) {
-        print("Virtual Component setup failed");
+        print('= Victron BLE Bridge ERROR ===');
+        print("=== Virtual Component setup failed. Stopping script!");
+        die();
         return;
     }
 
@@ -613,30 +784,19 @@ function handleVirtualComponentsReady(ok, vc) {
     vc.handles.debugEnabled.on('change', updateGroupMembership);
 
     // Load stored tokens and auto-start if available
-    let tokenAuth = Script.storage.getItem('victron_bletoken');
+    let tokenAuth = Script.storage.getItem(TOKEN_STORAGE_KEY);
     tokenAuthBase64 = tokenAuth ? btoa(tokenAuth) : null;
     updateGroupMembership();
+    print('= Victron BLE Bridge UI components ready.');
     if (tokenAuthBase64) {
+        print('=== Authentication loaded, starting BLE...');
         setStatus('Authentication loaded, starting BLE...');
         startBLEScanning();
     } else {
+        print('=== No authentication found, enable pairing mode and press the Authenticate button');
         setStatus('Enable pairing mode and press the Authenticate button');
     }
-
-    print('Victron BLE Bridge UI components ready.');
 }
-
-let deviceInfo = Shelly.getDeviceInfo();
-gwMacNoColons = deviceInfo.mac.toUpperCase();
-gwMacWithColons = gwMacNoColons[0] + gwMacNoColons[1] + ':' +
-    gwMacNoColons[2] + gwMacNoColons[3] + ':' +
-    gwMacNoColons[4] + gwMacNoColons[5] + ':' +
-    gwMacNoColons[6] + gwMacNoColons[7] + ':' +
-    gwMacNoColons[8] + gwMacNoColons[9] + ':' +
-    gwMacNoColons[10] + gwMacNoColons[11];
-deviceInfo = null;  // free memory
-
-print("Shelly MAC: " + gwMacWithColons);
 
 let VIRTUAL_COMPONENTS_MANIFEST = {
     components: [
@@ -678,10 +838,14 @@ let VIRTUAL_COMPONENTS_MANIFEST = {
                 default_value: "pairing",
                 persisted: false,
                 options: ["pairing", "password"],
-                meta: { ui: { view: "dropdown", 
-                    titles: {pairing: "Pairing mode", password: "GX password"}, 
-                    icons: null, 
-                    images: {pairing: null, password: null} } }
+                meta: {
+                    ui: {
+                        view: "dropdown",
+                        titles: { pairing: "Pairing mode", password: "GX password" },
+                        icons: null,
+                        images: { pairing: null, password: null }
+                    }
+                }
             }
         },
         {
@@ -720,5 +884,32 @@ let VIRTUAL_COMPONENTS_MANIFEST = {
     ]
 };
 
-ensureVirtualComponents(VIRTUAL_COMPONENTS_MANIFEST, handleVirtualComponentsReady);
-VIRTUAL_COMPONENTS_MANIFEST = null;  // free memory
+function initVirtualComponentsMode() {
+    print('= Victron BLE Bridge ===');
+    print('=== Shelly MAC: ' + gwMacWithColons);
+
+    ensureVirtualComponents(VIRTUAL_COMPONENTS_MANIFEST, handleVirtualComponentsReady);
+    VIRTUAL_COMPONENTS_MANIFEST = null;  // free memory
+}
+
+/************ INITIALIZATION ************/
+
+let deviceInfo = Shelly.getDeviceInfo();
+gwMacNoColons = deviceInfo.mac.toUpperCase();
+gwMacWithColons = gwMacNoColons[0] + gwMacNoColons[1] + ':' +
+    gwMacNoColons[2] + gwMacNoColons[3] + ':' +
+    gwMacNoColons[4] + gwMacNoColons[5] + ':' +
+    gwMacNoColons[6] + gwMacNoColons[7] + ':' +
+    gwMacNoColons[8] + gwMacNoColons[9] + ':' +
+    gwMacNoColons[10] + gwMacNoColons[11];
+deviceInfo = null;  // free memory
+
+// Detect Virtual Components support and initialize accordingly
+if (typeof Virtual !== 'undefined') {
+    useVirtualComponents = true;
+    initVirtualComponentsMode();
+} else {
+    useVirtualComponents = false;
+    VIRTUAL_COMPONENTS_MANIFEST = null;
+    initKvsMode();
+}

@@ -221,3 +221,11 @@ const struct victron_device lsbms_victron_device = {
 	.dev_info = &lsbms_dev_info,
 	.def_name = "LSBMS",
 };
+
+veBool lsbms_is_supported(const uint8_t *buf, int len)
+{
+	/* For now, only support the VE.Bus BMS NG and smallBMS NG. */
+	uint16_t product_id = bt_get_le16(&buf[2]);
+	return product_id == VE_PROD_ID_SMART_VEBUS_BMS
+		|| product_id == VE_PROD_ID_SMALL_BMS;
+}

@@ -123,10 +123,11 @@ static void on_key_setting_changed(struct VeItem *droot, struct VeItem *setting,
 struct instant_readout_handler {
 	uint16_t record_type;
 	const struct victron_device *device;
+	veBool (*is_supported)(const uint8_t *buf, int len);
 };
 
 static const struct instant_readout_handler instant_readout_handlers[] = {
-	// { RECORD_TYPE_LYNX_SMART_BMS, &lsbms_victron_device },
+	{ RECORD_TYPE_LYNX_SMART_BMS, &lsbms_victron_device, lsbms_is_supported },
 	{ RECORD_TYPE_SOLARSENSE, &solarsense_victron_device },
 };
 
@@ -181,7 +182,10 @@ int victron_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len, enum d
 		record_type = (record_type << 8) | buf[7];
 
 	for (i = 0; i < array_size(instant_readout_handlers); i++) {
-		if (record_type == instant_readout_handlers[i].record_type) {
+		if (record_type == instant_readout_handlers[i].record_type
+		    && (!instant_readout_handlers[i].is_supported
+			|| instant_readout_handlers[i].is_supported(buf, len)))
+		{
 			instant_readout_handler = &instant_readout_handlers[i];
 			break;
 		}

@@ -19,7 +19,7 @@ typedef void (*setting_changed_fn)(struct VeItem *root, struct VeItem *setting,
 				   const void *data);
 
 struct dev_setting {
-	char		*name;
+	const char	*name;
 	struct VeSettingProperties *props;
 	setting_changed_fn onchange;
 };
@@ -81,6 +81,7 @@ struct dev_info {
 	uint16_t	dev_instance;
 	const char	*dev_prefix;
 	const char	*role;
+	const char	*(*get_role)(struct VeItem *root);
 	int		num_ctl_settings;
 	const struct dev_setting *ctl_settings;
 	int		num_settings;
@@ -131,6 +132,8 @@ int ble_dbus_add_settings(struct VeItem *droot,
 int ble_dbus_add_alarms(struct VeItem *droot, const struct alarm *alarms,
 			int num_alarms);
 int ble_dbus_is_enabled(struct VeItem *root);
+void ble_dbus_mark_delete_pending(struct VeItem *root);
+void ble_dbus_process_pending(void);
 int ble_dbus_set_regs(struct VeItem *root, const uint8_t *data, int len);
 int ble_dbus_set_name(struct VeItem *root, const char *name, enum name_source source);
 struct VeItem *ble_dbus_create_item(struct VeItem *droot, const char *path, VeVariant *val,

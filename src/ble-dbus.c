@@ -9,6 +9,7 @@
 #include <velib/utils/ve_item_utils.h>
 #include <velib/types/ve_dbus_item.h>
 #include <velib/vecan/products.h>
+#include <velib/utils/ve_todo.h>
 
 #include "ble-dbus.h"
 #include "ble-scan.h"
@@ -23,6 +24,7 @@ struct device {
 	uint32_t		last_seqno;
 	enum data_source	active_source;
 	int			deferred_created;
+	int			delete_pending;
 	VeVariant		names[NAME_ORIG_NONE];
 	enum name_source	cname_source;
 	enum name_source	dname_source;
@@ -733,7 +735,7 @@ static int ble_dbus_connect(struct VeItem *droot)
 		return -1;
 
 	dclass = get_dev_class(info);
-	role = info->role ?: dclass->role;
+	role = info->get_role ? info->get_role(droot) : info->role ?: dclass->role;
 
 	snprintf(dev_id, sizeof(dev_id), "%s%s", info->dev_prefix, dev);
 
@@ -1037,6 +1039,29 @@ static void ble_dbus_delete(struct VeItem *droot)
 		veDbusDisconnect(dbus);
 
 	veItemDeleteBranch(droot);
+}
+
+void ble_dbus_mark_delete_pending(struct VeItem *root)
+{
+	struct device *d = get_device(root);
+
+	d->delete_pending = 1;
+	veTodo();
+}
+
+void ble_dbus_process_pending(void)
+{
+	struct VeItem *dev = veItemFirstChild(devices);
+
+	while (dev) {
+		struct VeItem *next = veItemNextChild(dev);
+		struct device *d = get_device(dev);
+
+		if (d->delete_pending)
+			ble_dbus_delete(dev);
+
+		dev = next;
+	}
 }
 
 static void ble_dbus_expire(void)

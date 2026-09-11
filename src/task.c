@@ -176,6 +176,7 @@ void taskInit(void)
 
 void taskUpdate(void)
 {
+	ble_dbus_process_pending();
 }
 
 void taskTick(void)

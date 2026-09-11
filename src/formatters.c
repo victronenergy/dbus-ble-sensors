@@ -5,6 +5,61 @@
 #include <velib/types/variant_print.h>
 #include <velib/vecan/charger_error.h>
 
+size_t formatters_state(VeVariant *var, const void *ctx, char* buf, size_t len)
+{
+	if (var->type.tp != VE_UN32) {
+		return veVariantFmt(var, ctx, buf, len);
+	}
+	switch (var->value.UN32) {
+	case N2K_CONVERTER_STATE_OFF:
+		return ve_snprintf(buf, len, "%s", "Off");
+	case N2K_CONVERTER_STATE_LOW_POWER_MODE:
+		return ve_snprintf(buf, len, "%s", "Low power mode");
+	case N2K_CONVERTER_STATE_FAULT:
+		return ve_snprintf(buf, len, "%s", "Fault");
+	case N2K_CONVERTER_STATE_BULK:
+		return ve_snprintf(buf, len, "%s", "Bulk");
+	case N2K_CONVERTER_STATE_ABSORPTION:
+		return ve_snprintf(buf, len, "%s", "Absorption");
+	case N2K_CONVERTER_STATE_FLOAT:
+		return ve_snprintf(buf, len, "%s", "Float");
+	case N2K_CONVERTER_STATE_STORAGE:
+		return ve_snprintf(buf, len, "%s", "Storage");
+	case N2K_CONVERTER_STATE_EQUALIZE:
+		return ve_snprintf(buf, len, "%s", "Equalise");
+	case N2K_CONVERTER_STATE_PASSTHRU:
+		return ve_snprintf(buf, len, "%s", "Passthru");
+	case N2K_CONVERTER_STATE_INVERTING:
+		return ve_snprintf(buf, len, "%s", "Inverting");
+	case N2K_CONVERTER_STATE_ASSISTING:
+		return ve_snprintf(buf, len, "%s", "Assisting");
+	case N2K_CONVERTER_STATE_PSU:
+		return ve_snprintf(buf, len, "%s", "Power supply mode");
+	case N2K_CONVERTER_STATE_SUSTAIN:
+		return ve_snprintf(buf, len, "%s", "Sustain");
+	case N2K_CONVERTER_STATE_WAKEUP:
+		return ve_snprintf(buf, len, "%s", "Wakeup");
+	case N2K_CONVERTER_STATE_REPEATED_ABSORPTION:
+		return ve_snprintf(buf, len, "%s", "Repeated absorption");
+	case N2K_CONVERTER_STATE_AUTO_EQUALIZE:
+		return ve_snprintf(buf, len, "%s", "Auto equalize");
+	case N2K_CONVERTER_STATE_BATTERYSAFE:
+		return ve_snprintf(buf, len, "%s", "Battery safe");
+	case N2K_CONVERTER_STATE_LOAD_DETECT:
+		return ve_snprintf(buf, len, "%s", "Load detect");
+	case N2K_CONVERTER_STATE_BLOCKED:
+		return ve_snprintf(buf, len, "%s", "Blocked");
+	case N2K_CONVERTER_STATE_TEST:
+		return ve_snprintf(buf, len, "%s", "Test mode");
+	case N2K_CONVERTER_STATE_EXTERNAL_CONTROL:
+		return ve_snprintf(buf, len, "%s", "External control");
+	case N2K_CONVERTER_STATE_UNAVAILABLE:
+		return ve_snprintf(buf, len, "%s", "");
+	}
+
+	return ve_snprintf(buf, len, "%d", var->value.UN32);
+}
+
 const struct { int code; const char *description; } CHARGER_ERRORS[] =
 {
 	{ CHARGER_ERROR_NONE,					"No error" },

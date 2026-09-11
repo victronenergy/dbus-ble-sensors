@@ -52,6 +52,7 @@ struct reg_info {
 	int		(*xlate)(struct VeItem *root, VeVariant *val,
 				 uint64_t rawval);
 	const char	*name;
+	VeItemValueFmt  *formatter;
 	const void	*format;
 };
 
@@ -133,7 +134,7 @@ int ble_dbus_is_enabled(struct VeItem *root);
 int ble_dbus_set_regs(struct VeItem *root, const uint8_t *data, int len);
 int ble_dbus_set_name(struct VeItem *root, const char *name, enum name_source source);
 struct VeItem *ble_dbus_create_item(struct VeItem *droot, const char *path, VeVariant *val,
-				    const void *format);
+				    VeItemValueFmt *formatter, const void *format);
 struct VeItem *ble_dbus_create_str(struct VeItem *root, const char *path, const char *str);
 struct VeItem *ble_dbus_create_int(struct VeItem *root, const char *path, int num);
 int ble_dbus_set_item(struct VeItem *root, const char *path, VeVariant *val);

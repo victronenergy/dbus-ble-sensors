@@ -149,10 +149,10 @@ static void tank_init(struct VeItem *root, const void *data)
 	struct VeSettingProperties full;
 	VeVariant v;
 
-	ble_dbus_create_item(root, "RawUnit", veVariantHeapStr(&v, ti->raw_unit ?: "cm"), &veUnitNone);
-	ble_dbus_create_item(root, "Remaining", veVariantInvalidType(&v, VE_FLOAT), &veUnitm3);
-	ble_dbus_create_item(root, "Level", veVariantInvalidType(&v, VE_FLOAT), &veUnitNone);
-	ble_dbus_create_item(root, "Status", veVariantInvalidType(&v, VE_UN32), &veUnitNone);
+	ble_dbus_create_item(root, "RawUnit", veVariantHeapStr(&v, ti->raw_unit ?: "cm"), veVariantFmt, &veUnitNone);
+	ble_dbus_create_item(root, "Remaining", veVariantInvalidType(&v, VE_FLOAT), veVariantFmt, &veUnitm3);
+	ble_dbus_create_item(root, "Level", veVariantInvalidType(&v, VE_FLOAT), veVariantFmt, &veUnitNone);
+	ble_dbus_create_item(root, "Status", veVariantInvalidType(&v, VE_UN32), veVariantFmt, &veUnitNone);
 
 	fluid_type = fluid_type_props;
 	fluid_type.def.value.SN32 = ti->default_fluid_type;

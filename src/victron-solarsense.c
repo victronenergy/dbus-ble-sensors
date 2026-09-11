@@ -1,6 +1,7 @@
 #include "victron-solarsense.h"
 
 #include <ble-dbus.h>
+#include <formatters.h>
 
 #include <velib/base/types.h>
 #include <velib/types/variant.h>
@@ -21,7 +22,7 @@ static const struct reg_info solarsense_adv[] = {
 		.inval	= 0xff,
 		.flags	= REG_FLAG_INVALID,
 		.name	= "ChrErrorCode",
-		.format	= &veUnitNone,
+		.formatter = formatters_charger_error,
 	},
 	{
 		.type	= VE_UN32,

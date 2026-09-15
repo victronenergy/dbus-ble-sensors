@@ -858,9 +858,20 @@ static float alarm_level(struct VeItem *droot, const struct alarm *alarm,
 	float level;
 
 	if (alarm->flags & ALARM_FLAG_CONFIG) {
+		struct VeItem *item;
+		VeVariant var;
+		float value;
+		invalidateFloat(value);
+
 		snprintf(buf, sizeof(buf), "Alarms/%s/%s", alarm->name,
 			 active ? "Restore" : "Active");
-		return veItemValueFloat(droot, buf);
+		item = veItemByUid(droot, buf);
+		if (item) {
+			veItemLocalValue(item, &var);
+			if (veVariantIsValid(&var))
+				return veVariantToFloat(&var)->value.Float;
+		}
+		return value;
 	}
 
 	if (alarm->get_level)
@@ -881,6 +892,7 @@ static void update_alarm(struct VeItem *droot, const struct alarm *alarm)
 	VeVariant val;
 	float level;
 	int active = 0;
+	int enabled;
 	char buf[64];
 
 	item = veItemByUid(droot, alarm->item);
@@ -892,7 +904,10 @@ static void update_alarm(struct VeItem *droot, const struct alarm *alarm)
 	if (!alarm_item)
 		return;
 
-	if (alarm_enabled(droot, alarm)) {
+	enabled = alarm_enabled(droot, alarm);
+	if (enabled == VE_INVALID_SN32)
+		return;
+	if (enabled) {
 		if (veItemIsValid(alarm_item)) {
 			veItemLocalValue(alarm_item, &val);
 			veVariantToN32(&val);
@@ -903,6 +918,9 @@ static void update_alarm(struct VeItem *droot, const struct alarm *alarm)
 
 		veItemLocalValue(item, &val);
 		veVariantToFloat(&val);
+		if (!validFloat(val.value.Float) || !validFloat(level)) {
+			return;
+		}
 
 		if (alarm->flags & ALARM_FLAG_HIGH)
 			active = val.value.Float > level;

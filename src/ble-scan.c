@@ -10,9 +10,11 @@
 #include <bluetooth/hci.h>
 #include <bluetooth/hci_lib.h>
 
+#include <dbus/dbus.h>
 #include <event2/event.h>
 
 #include <velib/platform/plt.h>
+#include <velib/utils/ve_logger.h>
 #include <velib/utils/ve_todo.h>
 
 #include "ble-dbus.h"
@@ -20,36 +22,52 @@
 #include "ble-handler.h"
 #include "task.h"
 
-#define SCAN_INTERVAL	90
-#define SCAN_WINDOW	15
+#define BLUEZ_SERVICE		"org.bluez"
+#define BLUEZ_ROOT_PATH		"/"
+#define BLUEZ_ADAPTER_IFACE	"org.bluez.Adapter1"
+#define OBJMGR_IFACE		"org.freedesktop.DBus.ObjectManager"
+#define PROPS_IFACE		"org.freedesktop.DBus.Properties"
 
-#define SCAN_TYPE_PASSIVE	0
-#define SCAN_TYPE_ACTIVE	1
+/*
+ * Matches nothing, so bluez does not export a device object for every
+ * advertiser it sees.  The advertisements are read from the raw hci socket.
+ */
+#define SCAN_PATTERN		"FF:FF:FF:FF:FF:FF"
 
-#define SCAN_SETTING_DEFAULT	0
-#define SCAN_SETTING_PASSIVE	1
-#define SCAN_SETTING_ACTIVE	2
+#define DBUS_CALL_TIMEOUT	2000
+#define PATH_SIZE		64
 
-struct mgmt_hdr {
-	uint16_t opcode;
-	uint16_t index;
-	uint16_t len;
-} __attribute__ ((packed));
+#define BLUEZ_ERR_IN_PROGRESS	"org.bluez.Error.InProgress"
 
-#define MGMT_HDR_SIZE			6
-#define MGMT_EV_INDEX_ADDED		0x0004
-#define MGMT_EV_INDEX_REMOVED		0x0005
-#define MGMT_EV_UNCONF_INDEX_ADDED	0x001d
-#define MGMT_EV_UNCONF_INDEX_REMOVED	0x001e
-#define MGMT_EV_EXT_INDEX_ADDED		0x0020
-#define MGMT_EV_EXT_INDEX_REMOVED	0x0021
+#define MODULE			"ble-scan"
+
+#ifndef EVT_LE_EXT_ADVERTISING_REPORT
+#define EVT_LE_EXT_ADVERTISING_REPORT	0x0d
+#endif
+
+typedef struct {
+	uint16_t evt_type;
+	uint8_t bdaddr_type;
+	bdaddr_t bdaddr;
+	uint8_t primary_phy;
+	uint8_t secondary_phy;
+	uint8_t sid;
+	uint8_t tx_power;
+	int8_t rssi;
+	uint16_t interval;
+	uint8_t direct_bdaddr_type;
+	bdaddr_t direct_bdaddr;
+	uint8_t length;
+	uint8_t data[0];
+} __attribute__ ((packed)) le_ext_advertising_info;
 
 #define NAME_SIZE sizeof(((struct hci_dev_info *)0)->name)
 
 struct hci_device {
 	uint16_t dev_id;
 	int sock;
-	int addr_type;
+	int discovering;
+	char path[PATH_SIZE];
 	char name[NAME_SIZE];
 	struct event *ev;
 };
@@ -57,9 +75,8 @@ struct hci_device {
 static struct hci_device devices[HCI_MAX_DEV];
 static int cont_scan;
 static int ble_scan_enabled = 1;
-static int hci_ctl_sock = -1;
-static int scan_type = 0;
-static struct event *hci_ctl_ev = NULL;
+static DBusConnection *bluez_bus;
+static struct event *dispatch_ev;
 
 static struct VeSettingProperties ble_enabled_props = {
 	.type		= VE_SN32,
@@ -75,47 +92,256 @@ static struct VeSettingProperties continuous_scan_props = {
 	.max.value.SN32 = 1,
 };
 
-static struct VeSettingProperties scan_type_props = {
-	.type		= VE_SN32,
-	.def.value.SN32 = 0,
-	.min.value.SN32 = 0,
-	.max.value.SN32 = 2,
-};
-
-static int ble_scan_setup(struct hci_device *dev, int addr_type)
+static void ble_scan_parse_adv(const uint8_t *msg, int len, int num)
 {
-	int interval = cont_scan ? SCAN_WINDOW : SCAN_INTERVAL;
-	int type = scan_type == SCAN_SETTING_ACTIVE ? SCAN_TYPE_ACTIVE : SCAN_TYPE_PASSIVE;
-	int err;
+	while (num-- > 0) {
+		const le_advertising_info *adv;
+		int size;
 
-	if (dev->sock < 0)
-		return 0;
+		if (len < LE_ADVERTISING_INFO_SIZE)
+			return;
 
-	hci_le_set_scan_enable(dev->sock, 0, 1, 1000);
+		adv = (const le_advertising_info *)msg;
 
-	err = hci_le_set_scan_parameters(dev->sock, type,
-					 htobs(interval), htobs(SCAN_WINDOW),
-					 addr_type, 0, 1000);
-	if (err < 0)
-		return -2;
+		/* A single rssi byte follows the advertising data. */
+		size = LE_ADVERTISING_INFO_SIZE + adv->length + 1;
+		if (len < size)
+			return;
 
-	err = hci_le_set_scan_enable(dev->sock, 1, 0, 1000);
-	if (err < 0)
-		return -1;
+		ble_parse_adv(&adv->bdaddr, adv->data, adv->length,
+			      DATA_SOURCE_BLE);
 
-	dev->addr_type = addr_type;
+		msg += size;
+		len -= size;
+	}
+}
+
+static void ble_scan_parse_ext_adv(const uint8_t *msg, int len, int num)
+{
+	while (num-- > 0) {
+		const le_ext_advertising_info *adv;
+		int size;
+
+		if (len < (int)sizeof(*adv))
+			return;
+
+		adv = (const le_ext_advertising_info *)msg;
+
+		size = sizeof(*adv) + adv->length;
+		if (len < size)
+			return;
+
+		ble_parse_adv(&adv->bdaddr, adv->data, adv->length,
+			      DATA_SOURCE_BLE);
+
+		msg += size;
+		len -= size;
+	}
+}
+
+static DBusMessage *ble_scan_call_reply(DBusMessage *msg, int *in_progress)
+{
+	const char *path, *member;
+	DBusMessage *reply;
+	DBusError err;
+
+	if (!msg)
+		return NULL;
+
+	path   = dbus_message_get_path(msg);
+	member = dbus_message_get_member(msg);
+
+	logI(MODULE, "calling %s %s", path, member);
+
+	dbus_error_init(&err);
+	reply = dbus_connection_send_with_reply_and_block(bluez_bus, msg,
+							 DBUS_CALL_TIMEOUT, &err);
+
+	if (reply) {
+		logI(MODULE, "%s %s: ok", path, member);
+	} else {
+		int busy = dbus_error_has_name(&err, BLUEZ_ERR_IN_PROGRESS);
+
+		if (in_progress)
+			*in_progress = busy;
+
+		if (busy)
+			logI(MODULE, "%s %s: %s", path, member, err.name);
+		else
+			fprintf(stderr, "bluez: %s %s: %s: %s\n", path, member,
+				err.name, err.message);
+
+		dbus_error_free(&err);
+	}
+
+	dbus_message_unref(msg);
+
+	return reply;
+}
+
+/* Returns 0 on success, 1 if bluez is already in the requested state, -1 on error. */
+static int ble_scan_call(DBusMessage *msg)
+{
+	int in_progress = 0;
+	DBusMessage *reply = ble_scan_call_reply(msg, &in_progress);
+
+	if (!reply)
+		return in_progress ? 1 : -1;
+
+	dbus_message_unref(reply);
 
 	return 0;
 }
 
-static int ble_scan_parse_adv(const le_advertising_info *adv)
+static void ble_scan_append_dict_str(DBusMessageIter *dict, const char *key,
+				     const char *val)
 {
-	if (!ble_scan_enabled)
-		return 0;
+	DBusMessageIter entry, var;
 
-	ble_parse_adv(&adv->bdaddr, adv->data, adv->length, DATA_SOURCE_BLE);
+	dbus_message_iter_open_container(dict, DBUS_TYPE_DICT_ENTRY, NULL, &entry);
+	dbus_message_iter_append_basic(&entry, DBUS_TYPE_STRING, &key);
+	dbus_message_iter_open_container(&entry, DBUS_TYPE_VARIANT,
+					 DBUS_TYPE_STRING_AS_STRING, &var);
+	dbus_message_iter_append_basic(&var, DBUS_TYPE_STRING, &val);
+	dbus_message_iter_close_container(&entry, &var);
+	dbus_message_iter_close_container(dict, &entry);
+}
 
-	return 0;
+static void ble_scan_append_dict_bool(DBusMessageIter *dict, const char *key,
+				      dbus_bool_t val)
+{
+	DBusMessageIter entry, var;
+
+	dbus_message_iter_open_container(dict, DBUS_TYPE_DICT_ENTRY, NULL, &entry);
+	dbus_message_iter_append_basic(&entry, DBUS_TYPE_STRING, &key);
+	dbus_message_iter_open_container(&entry, DBUS_TYPE_VARIANT,
+					 DBUS_TYPE_BOOLEAN_AS_STRING, &var);
+	dbus_message_iter_append_basic(&var, DBUS_TYPE_BOOLEAN, &val);
+	dbus_message_iter_close_container(&entry, &var);
+	dbus_message_iter_close_container(dict, &entry);
+}
+
+static int ble_scan_get_bool(struct hci_device *dev, const char *prop)
+{
+	const char *iface = BLUEZ_ADAPTER_IFACE;
+	DBusMessageIter iter, var;
+	DBusMessage *msg, *reply;
+	dbus_bool_t on;
+
+	msg = dbus_message_new_method_call(BLUEZ_SERVICE, dev->path,
+					   PROPS_IFACE, "Get");
+	if (!msg)
+		return -1;
+
+	dbus_message_append_args(msg, DBUS_TYPE_STRING, &iface,
+				 DBUS_TYPE_STRING, &prop, DBUS_TYPE_INVALID);
+
+	reply = ble_scan_call_reply(msg, NULL);
+	if (!reply)
+		return -1;
+
+	if (!dbus_message_iter_init(reply, &iter) ||
+	    dbus_message_iter_get_arg_type(&iter) != DBUS_TYPE_VARIANT) {
+		dbus_message_unref(reply);
+		return -1;
+	}
+
+	dbus_message_iter_recurse(&iter, &var);
+	if (dbus_message_iter_get_arg_type(&var) != DBUS_TYPE_BOOLEAN) {
+		dbus_message_unref(reply);
+		return -1;
+	}
+
+	dbus_message_iter_get_basic(&var, &on);
+	dbus_message_unref(reply);
+
+	logI(MODULE, "%s: %s = %d", dev->name, prop, on ? 1 : 0);
+
+	return on ? 1 : 0;
+}
+
+static void ble_scan_set_powered(struct hci_device *dev)
+{
+	const char *iface = BLUEZ_ADAPTER_IFACE;
+	const char *prop  = "Powered";
+	DBusMessageIter iter, var;
+	dbus_bool_t on = TRUE;
+	DBusMessage *msg;
+
+	msg = dbus_message_new_method_call(BLUEZ_SERVICE, dev->path,
+					   PROPS_IFACE, "Set");
+	if (!msg)
+		return;
+
+	dbus_message_iter_init_append(msg, &iter);
+	dbus_message_iter_append_basic(&iter, DBUS_TYPE_STRING, &iface);
+	dbus_message_iter_append_basic(&iter, DBUS_TYPE_STRING, &prop);
+	dbus_message_iter_open_container(&iter, DBUS_TYPE_VARIANT,
+					 DBUS_TYPE_BOOLEAN_AS_STRING, &var);
+	dbus_message_iter_append_basic(&var, DBUS_TYPE_BOOLEAN, &on);
+	dbus_message_iter_close_container(&iter, &var);
+
+	/* bluez reports InProgress while it is still powering the adapter */
+	ble_scan_call(msg);
+}
+
+static int ble_scan_set_filter(struct hci_device *dev)
+{
+	DBusMessageIter iter, dict;
+	DBusMessage *msg;
+
+	msg = dbus_message_new_method_call(BLUEZ_SERVICE, dev->path,
+					   BLUEZ_ADAPTER_IFACE,
+					   "SetDiscoveryFilter");
+	if (!msg)
+		return -1;
+
+	dbus_message_iter_init_append(msg, &iter);
+	dbus_message_iter_open_container(&iter, DBUS_TYPE_ARRAY, "{sv}", &dict);
+	ble_scan_append_dict_str(&dict, "Transport", "le");
+	ble_scan_append_dict_str(&dict, "Pattern", SCAN_PATTERN);
+	ble_scan_append_dict_bool(&dict, "DuplicateData", TRUE);
+	dbus_message_iter_close_container(&iter, &dict);
+
+	return ble_scan_call(msg);
+}
+
+static int ble_scan_discovery(struct hci_device *dev, int start)
+{
+	DBusMessage *msg;
+	int rc;
+
+	msg = dbus_message_new_method_call(BLUEZ_SERVICE, dev->path,
+					   BLUEZ_ADAPTER_IFACE,
+					   start ? "StartDiscovery" : "StopDiscovery");
+
+	rc = ble_scan_call(msg);
+	if (rc < 0 && start)
+		return -1;
+
+	/* On InProgress bluez has a pending request, check what it did. */
+	if (rc > 0)
+		dev->discovering = ble_scan_get_bool(dev, "Discovering") == 1;
+	else
+		dev->discovering = start;
+
+	logI(MODULE, "%s: discovering = %d", dev->name, dev->discovering);
+
+	return dev->discovering == start ? 0 : -1;
+}
+
+static int ble_scan_start(struct hci_device *dev)
+{
+	if (ble_scan_get_bool(dev, "Powered") <= 0) {
+		/* Retry once the adapter is powered up. */
+		ble_scan_set_powered(dev);
+		return -1;
+	}
+
+	if (ble_scan_set_filter(dev) < 0)
+		return -1;
+
+	return ble_scan_discovery(dev, 1);
 }
 
 static void ble_scan_close_dev(struct hci_device *dev)
@@ -126,6 +352,9 @@ static void ble_scan_close_dev(struct hci_device *dev)
 		return;
 
 	fprintf(stderr, "closing hci%d (%s)\n", dev->dev_id, dev->name);
+
+	if (dev->discovering)
+		ble_scan_discovery(dev, 0);
 
 	if (dev->ev != NULL) {
 		event_free(dev->ev);
@@ -138,7 +367,6 @@ static void ble_scan_close_dev(struct hci_device *dev)
 		if (flags > 0)
 			fcntl(dev->sock, F_SETFL, flags & ~O_NONBLOCK);
 
-		hci_le_set_scan_enable(dev->sock, 0, 1, 1000);
 		hci_close_dev(dev->sock);
 		dev->sock = -1;
 	}
@@ -146,22 +374,11 @@ static void ble_scan_close_dev(struct hci_device *dev)
 	if (dev->name[0]) {
 		ble_dbus_invalidate_interface(dev->name);
 		veItemSendPendingChanges(get_control());
-		dev->name[0]   = '\0';
+		dev->name[0] = '\0';
 	}
 
-	dev->dev_id    = HCI_DEV_NONE;
-	dev->addr_type = LE_PUBLIC_ADDRESS;
-}
-
-static void ble_scan_close_dev_id(uint16_t device_id) {
-	int i;
-
-	for (i = 0; i < ARRAY_LENGTH(devices); i++) {
-		if (devices[i].dev_id == device_id) {
-			ble_scan_close_dev(&devices[i]);
-			return;
-		}
-	}
+	dev->path[0] = '\0';
+	dev->dev_id  = HCI_DEV_NONE;
 }
 
 static void on_dev_socket_readable(evutil_socket_t fd, short events, void *ctx)
@@ -170,7 +387,7 @@ static void on_dev_socket_readable(evutil_socket_t fd, short events, void *ctx)
 	uint8_t buf[HCI_MAX_EVENT_SIZE];
 	hci_event_hdr *evt;
 	evt_le_meta_event *mev;
-	le_advertising_info *adv;
+	int num;
 	int len;
 
 	for (;;) {
@@ -209,23 +426,22 @@ static void on_dev_socket_readable(evutil_socket_t fd, short events, void *ctx)
 			continue;
 
 		mev = (evt_le_meta_event *)msg;
-		msg += EVT_LE_META_EVENT_SIZE + 1;
-		len -= EVT_LE_META_EVENT_SIZE + 1;
+		msg += EVT_LE_META_EVENT_SIZE;
+		len -= EVT_LE_META_EVENT_SIZE;
 
-		if (mev->subevent != EVT_LE_ADVERTISING_REPORT)
+		if (len < 1)
 			continue;
 
-		if (len < LE_ADVERTISING_INFO_SIZE)
+		num = *msg++;
+		len--;
+
+		if (!ble_scan_enabled)
 			continue;
 
-		adv = (le_advertising_info *)msg;
-		msg += LE_ADVERTISING_INFO_SIZE;
-		len -= LE_ADVERTISING_INFO_SIZE;
-
-		if (len < adv->length)
-			continue;
-
-		ble_scan_parse_adv(adv);
+		if (mev->subevent == EVT_LE_ADVERTISING_REPORT)
+			ble_scan_parse_adv(msg, len, num);
+		else if (mev->subevent == EVT_LE_EXT_ADVERTISING_REPORT)
+			ble_scan_parse_ext_adv(msg, len, num);
 	}
 }
 
@@ -241,293 +457,598 @@ static struct hci_device* ble_scan_first_free_device(void)
 	return NULL;
 }
 
-static void ble_scan_open_dev(int id)
+static struct hci_device *ble_scan_find_dev(const char *path)
 {
-	struct hci_dev_info info = { .dev_id = id };
+	int i;
+
+	for (i = 0; i < ARRAY_LENGTH(devices); i++) {
+		if (devices[i].dev_id != HCI_DEV_NONE &&
+		    !strcmp(devices[i].path, path))
+			return &devices[i];
+	}
+
+	return NULL;
+}
+
+/* The advertisements are read from the raw hci socket, not from bluez. */
+static int ble_scan_open_sock(struct hci_device *dev)
+{
 	struct hci_filter filter;
-	char addr[18];
 	socklen_t len;
-	int hci_sock;
 	int flags;
 	int err;
-	struct hci_device *dev = ble_scan_first_free_device();
 
-	fprintf(stderr, "opening hci%d\n", id);
-	if (!dev) {
-		fprintf(stderr, "no free device slot for hci%d\n", id);
-		pltExit(-1);
-	}
-	dev->dev_id = id;
-
-	hci_sock = hci_open_dev(id);
-	if (hci_sock < 0) {
+	dev->sock = hci_open_dev(dev->dev_id);
+	if (dev->sock < 0) {
 		perror("hci_open_dev");
-		return;
-	}
-	dev->sock = hci_sock;
-
-	err = ioctl(hci_sock, HCIGETDEVINFO, &info);
-	if (err) {
-		perror("HCIGETDEVINFO");
-		goto err;
-	}
-
-	err = ioctl(hci_sock, HCIDEVUP, id);
-	if (err && errno != EALREADY) {
-		perror("HCIDEVUP");
-		goto err;
-	}
-
-	err = ble_scan_setup(dev, LE_RANDOM_ADDRESS);
-	if (err < 0)
-		err = ble_scan_setup(dev, LE_PUBLIC_ADDRESS);
-
-	if (err < 0) {
-		if (err == -2)
-			perror("hci_le_set_scan_parameters");
-		else
-			perror("hci_le_set_scan_enable");
-
-		goto err;
+		return -1;
 	}
 
 	len = sizeof(filter);
-	err = getsockopt(hci_sock, SOL_HCI, HCI_FILTER, &filter, &len);
+	err = getsockopt(dev->sock, SOL_HCI, HCI_FILTER, &filter, &len);
 	if (err < 0) {
 		perror("getsockopt");
-		goto err;
+		return -1;
 	}
 
 	hci_filter_set_ptype(HCI_EVENT_PKT, &filter);
 	hci_filter_set_event(EVT_LE_META_EVENT, &filter);
 
-	err = setsockopt(hci_sock, SOL_HCI, HCI_FILTER,
+	err = setsockopt(dev->sock, SOL_HCI, HCI_FILTER,
 			 &filter, sizeof(filter));
 	if (err < 0) {
 		perror("setsockopt");
-		goto err;
+		return -1;
 	}
 
-	flags = fcntl(hci_sock, F_GETFL);
+	flags = fcntl(dev->sock, F_GETFL);
 	if (flags < 0)
-		goto err;
+		return -1;
 
-	err = fcntl(hci_sock, F_SETFL, flags | O_NONBLOCK);
+	err = fcntl(dev->sock, F_SETFL, flags | O_NONBLOCK);
 	if (err < 0)
-		goto err;
+		return -1;
 
-	ba2str(&info.bdaddr, addr);
-	ble_dbus_add_interface(info.name, addr);
-	veItemSendPendingChanges(get_control());
-	memcpy(dev->name, info.name, NAME_SIZE);
-
-	dev->ev = event_new(pltGetLibEventBase(), hci_sock,
+	dev->ev = event_new(pltGetLibEventBase(), dev->sock,
 			    EV_READ | EV_PERSIST, on_dev_socket_readable, dev);
 	if (dev->ev == NULL) {
 		perror("event_new");
-		goto err;
+		return -1;
 	}
 
 	if (event_add(dev->ev, NULL) < 0) {
 		perror("event_add");
-		goto err;
+		return -1;
 	}
 
-	return;
+	return 0;
+}
 
-err:
+static const char *ble_scan_get_str_prop(const DBusMessageIter *props,
+					 const char *name)
+{
+	DBusMessageIter iter = *props;
+
+	while (dbus_message_iter_get_arg_type(&iter) == DBUS_TYPE_DICT_ENTRY) {
+		DBusMessageIter entry, var;
+		const char *key;
+		const char *val;
+
+		dbus_message_iter_recurse(&iter, &entry);
+		dbus_message_iter_get_basic(&entry, &key);
+		dbus_message_iter_next(&entry);
+		dbus_message_iter_recurse(&entry, &var);
+
+		if (!strcmp(key, name) &&
+		    dbus_message_iter_get_arg_type(&var) == DBUS_TYPE_STRING) {
+			dbus_message_iter_get_basic(&var, &val);
+			return val;
+		}
+
+		dbus_message_iter_next(&iter);
+	}
+
+	return NULL;
+}
+
+static int ble_scan_get_bool_prop(const DBusMessageIter *props, const char *name)
+{
+	DBusMessageIter iter = *props;
+
+	while (dbus_message_iter_get_arg_type(&iter) == DBUS_TYPE_DICT_ENTRY) {
+		DBusMessageIter entry, var;
+		const char *key;
+		dbus_bool_t val;
+
+		dbus_message_iter_recurse(&iter, &entry);
+		dbus_message_iter_get_basic(&entry, &key);
+		dbus_message_iter_next(&entry);
+		dbus_message_iter_recurse(&entry, &var);
+
+		if (!strcmp(key, name) &&
+		    dbus_message_iter_get_arg_type(&var) == DBUS_TYPE_BOOLEAN) {
+			dbus_message_iter_get_basic(&var, &val);
+			return val ? 1 : 0;
+		}
+
+		dbus_message_iter_next(&iter);
+	}
+
+	return -1;
+}
+
+static void ble_scan_open_dev(const char *path, const DBusMessageIter *props)
+{
+	struct hci_device *dev;
+	const char *addr;
+	unsigned int id;
+
+	if (!ble_scan_enabled)
+		return;
+
+	if (ble_scan_find_dev(path))
+		return;
+
+	if (sscanf(path, "/org/bluez/hci%u", &id) != 1 || id >= HCI_MAX_DEV) {
+		fprintf(stderr, "ignoring adapter %s\n", path);
+		return;
+	}
+
+	addr = ble_scan_get_str_prop(props, "Address");
+	if (!addr) {
+		fprintf(stderr, "no address for adapter %s\n", path);
+		return;
+	}
+
+	dev = ble_scan_first_free_device();
+	if (!dev) {
+		fprintf(stderr, "no free device slot for %s\n", path);
+		return;
+	}
+
+	fprintf(stderr, "opening hci%u\n", id);
+
+	dev->dev_id = id;
+	snprintf(dev->path, sizeof(dev->path), "%s", path);
+	snprintf(dev->name, sizeof(dev->name), "hci%u", id);
+
+	if (ble_scan_open_sock(dev) < 0) {
+		ble_scan_close_dev(dev);
+		return;
+	}
+
+	ble_dbus_add_interface(dev->name, addr);
+	veItemSendPendingChanges(get_control());
+
+	ble_scan_start(dev);
+}
+
+static void ble_scan_remove_dev(const char *path)
+{
+	struct hci_device *dev = ble_scan_find_dev(path);
+
+	if (!dev)
+		return;
+
+	/* The adapter is gone, no point in talking to bluez about it. */
+	dev->discovering = 0;
 	ble_scan_close_dev(dev);
 }
 
-static int ble_scan_read_dev_list(uint16_t *device_ids, size_t nr_devices)
+static void ble_scan_parse_interfaces(const char *path, DBusMessageIter *ifaces)
 {
-	struct hci_dev_list_req *dl;
-	int sock;
-	int i, n = 0;
+	while (dbus_message_iter_get_arg_type(ifaces) == DBUS_TYPE_DICT_ENTRY) {
+		DBusMessageIter entry, props;
+		const char *iface;
 
-	sock = socket(AF_BLUETOOTH, SOCK_RAW, BTPROTO_HCI);
-	if (sock < 0) {
-		perror("socket");
-		return 0;
+		dbus_message_iter_recurse(ifaces, &entry);
+		dbus_message_iter_get_basic(&entry, &iface);
+		dbus_message_iter_next(&entry);
+
+		if (!strcmp(iface, BLUEZ_ADAPTER_IFACE)) {
+			dbus_message_iter_recurse(&entry, &props);
+			ble_scan_open_dev(path, &props);
+		}
+
+		dbus_message_iter_next(ifaces);
 	}
-
-	dl = calloc(1, sizeof(*dl) + nr_devices * sizeof(*dl->dev_req));
-	if (!dl)
-		goto out;
-
-	dl->dev_num = nr_devices;
-	if (ioctl(sock, HCIGETDEVLIST, dl)) {
-		perror("HCIGETDEVLIST");
-		goto out;
-	}
-
-	for (i = 0; i < dl->dev_num; i++) {
-		device_ids[i] = dl->dev_req[i].dev_id;
-	}
-	n = dl->dev_num;
-
-out:
-	close(sock);
-	free(dl);
-
-	return n;
-}
-
-static int ble_scan_in_dev_id_list(uint16_t dev_id, uint16_t *list, size_t n)
-{
-	size_t i;
-
-	for (i = 0; i < n; i++) {
-		if (list[i] == dev_id)
-			return 1;
-	}
-
-	return 0;
-}
-
-static int ble_scan_in_dev_list(uint16_t dev_id)
-{
-	int i;
-
-	for (i = 0; i < ARRAY_LENGTH(devices); i++) {
-		if (devices[i].dev_id == dev_id)
-			return 1;
-	}
-
-	return 0;
 }
 
 static void ble_scan_refresh_devices(void)
 {
-	uint16_t device_ids[ARRAY_LENGTH(devices)];
+	DBusMessageIter iter, objs;
+	DBusMessage *msg, *reply;
+	DBusError err;
 
-	int i, n;
+	msg = dbus_message_new_method_call(BLUEZ_SERVICE, BLUEZ_ROOT_PATH,
+					   OBJMGR_IFACE, "GetManagedObjects");
+	if (!msg)
+		return;
 
-	n = ble_scan_read_dev_list(device_ids, ARRAY_LENGTH(device_ids));
+	dbus_error_init(&err);
+	reply = dbus_connection_send_with_reply_and_block(bluez_bus, msg,
+							 DBUS_CALL_TIMEOUT, &err);
+	dbus_message_unref(msg);
 
-	for (i = 0; i < ARRAY_LENGTH(devices); i++) {
-		if (devices[i].dev_id == HCI_DEV_NONE)
-			continue;
-		if (!ble_scan_in_dev_id_list(devices[i].dev_id, device_ids, n)) {
-			ble_scan_close_dev(&devices[i]);
-		}
+	if (!reply) {
+		fprintf(stderr, "bluez: %s: %s\n", err.name, err.message);
+		dbus_error_free(&err);
+		return;
 	}
 
-	for (i = 0; i < n; i++) {
-		if (!ble_scan_in_dev_list(device_ids[i]))
-			ble_scan_open_dev(device_ids[i]);
+	if (!dbus_message_iter_init(reply, &iter) ||
+	    dbus_message_iter_get_arg_type(&iter) != DBUS_TYPE_ARRAY) {
+		dbus_message_unref(reply);
+		return;
+	}
+
+	dbus_message_iter_recurse(&iter, &objs);
+
+	while (dbus_message_iter_get_arg_type(&objs) == DBUS_TYPE_DICT_ENTRY) {
+		DBusMessageIter entry, ifaces;
+		const char *path;
+
+		dbus_message_iter_recurse(&objs, &entry);
+		dbus_message_iter_get_basic(&entry, &path);
+		dbus_message_iter_next(&entry);
+		dbus_message_iter_recurse(&entry, &ifaces);
+
+		ble_scan_parse_interfaces(path, &ifaces);
+
+		dbus_message_iter_next(&objs);
+	}
+
+	dbus_message_unref(reply);
+}
+
+static void ble_scan_close_all(void)
+{
+	int i;
+
+	for (i = 0; i < ARRAY_LENGTH(devices); i++)
+		ble_scan_close_dev(&devices[i]);
+}
+
+static void on_interfaces_added(DBusMessage *msg)
+{
+	DBusMessageIter iter, ifaces;
+	const char *path;
+
+	if (!dbus_message_iter_init(msg, &iter))
+		return;
+
+	if (dbus_message_iter_get_arg_type(&iter) != DBUS_TYPE_OBJECT_PATH)
+		return;
+
+	dbus_message_iter_get_basic(&iter, &path);
+	dbus_message_iter_next(&iter);
+
+	if (dbus_message_iter_get_arg_type(&iter) != DBUS_TYPE_ARRAY)
+		return;
+
+	dbus_message_iter_recurse(&iter, &ifaces);
+	ble_scan_parse_interfaces(path, &ifaces);
+}
+
+static void on_interfaces_removed(DBusMessage *msg)
+{
+	DBusMessageIter iter, ifaces;
+	const char *path;
+
+	if (!dbus_message_iter_init(msg, &iter))
+		return;
+
+	if (dbus_message_iter_get_arg_type(&iter) != DBUS_TYPE_OBJECT_PATH)
+		return;
+
+	dbus_message_iter_get_basic(&iter, &path);
+	dbus_message_iter_next(&iter);
+
+	if (dbus_message_iter_get_arg_type(&iter) != DBUS_TYPE_ARRAY)
+		return;
+
+	dbus_message_iter_recurse(&iter, &ifaces);
+
+	while (dbus_message_iter_get_arg_type(&ifaces) == DBUS_TYPE_STRING) {
+		const char *iface;
+
+		dbus_message_iter_get_basic(&ifaces, &iface);
+		if (!strcmp(iface, BLUEZ_ADAPTER_IFACE))
+			ble_scan_remove_dev(path);
+
+		dbus_message_iter_next(&ifaces);
 	}
 }
 
-static void ble_scan_close_ctl(void)
+static void on_name_owner_changed(DBusMessage *msg)
 {
-	if (hci_ctl_ev != NULL) {
-		event_free(hci_ctl_ev);
-		hci_ctl_ev = NULL;
+	const char *name, *old, *new;
+	DBusError err;
+	int i;
+
+	dbus_error_init(&err);
+
+	if (!dbus_message_get_args(msg, &err,
+				   DBUS_TYPE_STRING, &name,
+				   DBUS_TYPE_STRING, &old,
+				   DBUS_TYPE_STRING, &new,
+				   DBUS_TYPE_INVALID)) {
+		dbus_error_free(&err);
+		return;
 	}
-	if (hci_ctl_sock >= 0) {
-		close(hci_ctl_sock);
-		hci_ctl_sock = -1;
+
+	if (strcmp(name, BLUEZ_SERVICE))
+		return;
+
+	if (!*new) {
+		/* bluez is gone, its adapters are unusable */
+		for (i = 0; i < ARRAY_LENGTH(devices); i++)
+			devices[i].discovering = 0;
+
+		ble_scan_close_all();
+		return;
+	}
+
+	ble_scan_refresh_devices();
+}
+
+static void on_properties_changed(DBusMessage *msg)
+{
+	struct hci_device *dev = ble_scan_find_dev(dbus_message_get_path(msg));
+	DBusMessageIter iter, props;
+
+	if (!dev)
+		return;
+
+	if (!dbus_message_iter_init(msg, &iter))
+		return;
+
+	dbus_message_iter_next(&iter);
+
+	if (dbus_message_iter_get_arg_type(&iter) != DBUS_TYPE_ARRAY)
+		return;
+
+	dbus_message_iter_recurse(&iter, &props);
+
+	if (ble_scan_get_bool_prop(&props, "Discovering") == 0) {
+		logI(MODULE, "%s: bluez stopped discovering", dev->name);
+		dev->discovering = 0;
+	}
+
+	/* The adapter may just have been powered up or stopped discovering. */
+	if (!dev->discovering)
+		ble_scan_start(dev);
+}
+
+static DBusHandlerResult on_dbus_message(DBusConnection *conn,
+					 DBusMessage *msg, void *ctx)
+{
+	if (dbus_message_is_signal(msg, OBJMGR_IFACE, "InterfacesAdded"))
+		on_interfaces_added(msg);
+	else if (dbus_message_is_signal(msg, OBJMGR_IFACE, "InterfacesRemoved"))
+		on_interfaces_removed(msg);
+	else if (dbus_message_is_signal(msg, PROPS_IFACE, "PropertiesChanged"))
+		on_properties_changed(msg);
+	else if (dbus_message_is_signal(msg, DBUS_INTERFACE_DBUS, "NameOwnerChanged"))
+		on_name_owner_changed(msg);
+
+	return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
+}
+
+static void on_dbus_dispatch(evutil_socket_t fd, short events, void *ctx)
+{
+	while (dbus_connection_get_dispatch_status(bluez_bus) ==
+	       DBUS_DISPATCH_DATA_REMAINS)
+		dbus_connection_dispatch(bluez_bus);
+}
+
+static void on_dbus_dispatch_status(DBusConnection *conn,
+				    DBusDispatchStatus status, void *ctx)
+{
+	static const struct timeval tv;
+
+	if (status == DBUS_DISPATCH_DATA_REMAINS)
+		event_add(dispatch_ev, &tv);
+}
+
+static void on_dbus_watch(evutil_socket_t fd, short events, void *ctx)
+{
+	DBusWatch *watch = ctx;
+	unsigned int flags = 0;
+
+	if (events & EV_READ)
+		flags |= DBUS_WATCH_READABLE;
+	if (events & EV_WRITE)
+		flags |= DBUS_WATCH_WRITABLE;
+
+	dbus_watch_handle(watch, flags);
+}
+
+static dbus_bool_t ble_scan_add_watch(DBusWatch *watch, void *ctx)
+{
+	struct event *ev;
+	unsigned int flags;
+	short cond;
+
+	if (!dbus_watch_get_enabled(watch))
+		return TRUE;
+
+	flags = dbus_watch_get_flags(watch);
+	cond = EV_PERSIST;
+	if (flags & DBUS_WATCH_READABLE)
+		cond |= EV_READ;
+	if (flags & DBUS_WATCH_WRITABLE)
+		cond |= EV_WRITE;
+
+	ev = event_new(pltGetLibEventBase(), dbus_watch_get_unix_fd(watch),
+		       cond, on_dbus_watch, watch);
+	if (!ev)
+		return FALSE;
+
+	dbus_watch_set_data(watch, ev, NULL);
+
+	if (event_add(ev, NULL) < 0) {
+		dbus_watch_set_data(watch, NULL, NULL);
+		event_free(ev);
+		return FALSE;
+	}
+
+	return TRUE;
+}
+
+static void ble_scan_remove_watch(DBusWatch *watch, void *ctx)
+{
+	struct event *ev = dbus_watch_get_data(watch);
+
+	if (ev)
+		event_free(ev);
+
+	dbus_watch_set_data(watch, NULL, NULL);
+}
+
+static void ble_scan_toggle_watch(DBusWatch *watch, void *ctx)
+{
+	if (dbus_watch_get_enabled(watch))
+		ble_scan_add_watch(watch, ctx);
+	else
+		ble_scan_remove_watch(watch, ctx);
+}
+
+static void on_dbus_timeout(evutil_socket_t fd, short events, void *ctx)
+{
+	dbus_timeout_handle(ctx);
+}
+
+static dbus_bool_t ble_scan_add_timeout(DBusTimeout *timeout, void *ctx)
+{
+	struct event *ev;
+	struct timeval tv;
+	int ms;
+
+	if (!dbus_timeout_get_enabled(timeout))
+		return TRUE;
+
+	ev = event_new(pltGetLibEventBase(), -1, EV_TIMEOUT | EV_PERSIST,
+		       on_dbus_timeout, timeout);
+	if (!ev)
+		return FALSE;
+
+	ms = dbus_timeout_get_interval(timeout);
+	tv.tv_sec  = ms / 1000;
+	tv.tv_usec = (ms % 1000) * 1000;
+
+	dbus_timeout_set_data(timeout, ev, NULL);
+
+	if (event_add(ev, &tv) < 0) {
+		dbus_timeout_set_data(timeout, NULL, NULL);
+		event_free(ev);
+		return FALSE;
+	}
+
+	return TRUE;
+}
+
+static void ble_scan_remove_timeout(DBusTimeout *timeout, void *ctx)
+{
+	struct event *ev = dbus_timeout_get_data(timeout);
+
+	if (ev)
+		event_free(ev);
+
+	dbus_timeout_set_data(timeout, NULL, NULL);
+}
+
+static void ble_scan_toggle_timeout(DBusTimeout *timeout, void *ctx)
+{
+	if (dbus_timeout_get_enabled(timeout))
+		ble_scan_add_timeout(timeout, ctx);
+	else
+		ble_scan_remove_timeout(timeout, ctx);
+}
+
+static void ble_scan_close_bus(void)
+{
+	if (bluez_bus) {
+		dbus_connection_remove_filter(bluez_bus, on_dbus_message, NULL);
+		dbus_connection_close(bluez_bus);
+		dbus_connection_unref(bluez_bus);
+		bluez_bus = NULL;
+	}
+
+	if (dispatch_ev) {
+		event_free(dispatch_ev);
+		dispatch_ev = NULL;
 	}
 }
 
-static void on_ctl_socket_readable(evutil_socket_t fd, short events, void *ctx)
+static int ble_scan_open_bus(void)
 {
-	uint8_t buf[1024];
-	veBool refresh = veFalse;
+	DBusError err;
 
-	for (;;) {
-		struct mgmt_hdr *hdr;
-		uint16_t event;
-		int len;
-		uint16_t dev_id;
-		uint16_t plen;
+	if (bluez_bus)
+		return 0;
 
-		len = read(hci_ctl_sock, buf, sizeof(buf));
-		if (len < 0) {
-			if (errno != EAGAIN)
-				perror("hci control read");
-			break;
-		}
+	dbus_error_init(&err);
 
-		if (len <= 0)
-			break;
-
-		if (len < MGMT_HDR_SIZE)
-			continue;
-
-		hdr   = (struct mgmt_hdr *)buf;
-		event = btohs(hdr->opcode);
-		dev_id = btohs(hdr->index);
-		plen   = btohs(hdr->len);
-
-		if (plen != len - MGMT_HDR_SIZE)
-			continue;
-
-		switch (event) {
-		case MGMT_EV_INDEX_REMOVED:
-		case MGMT_EV_UNCONF_INDEX_REMOVED:
-		case MGMT_EV_EXT_INDEX_REMOVED:
-			/* Close device immediately to avoid FD reuse race conditions */
-			ble_scan_close_dev_id(dev_id);
-			refresh = veTrue;
-			break;
-
-		case MGMT_EV_INDEX_ADDED:
-		case MGMT_EV_UNCONF_INDEX_ADDED:
-		case MGMT_EV_EXT_INDEX_ADDED:
-			/* Device availability changes: refresh to detect changes */
-			refresh = veTrue;
-			break;
-		}
+	bluez_bus = dbus_bus_get_private(DBUS_BUS_SYSTEM, &err);
+	if (!bluez_bus) {
+		fprintf(stderr, "bluez: %s: %s\n", err.name, err.message);
+		dbus_error_free(&err);
+		return -1;
 	}
 
-	if (refresh)
-		ble_scan_refresh_devices();
-}
+	dbus_connection_set_exit_on_disconnect(bluez_bus, FALSE);
 
-static int ble_scan_open_ctl(void)
-{
-	struct sockaddr_hci addr = {
-		.hci_family  = AF_BLUETOOTH,
-		.hci_dev     = HCI_DEV_NONE,
-		.hci_channel = HCI_CHANNEL_CONTROL,
-	};
-	int flags;
-
-	hci_ctl_sock = socket(AF_BLUETOOTH, SOCK_RAW, BTPROTO_HCI);
-	if (hci_ctl_sock < 0) {
-		perror("hci control socket");
+	dispatch_ev = event_new(pltGetLibEventBase(), -1, EV_TIMEOUT,
+				on_dbus_dispatch, NULL);
+	if (!dispatch_ev)
 		goto err;
-	}
 
-	if (bind(hci_ctl_sock, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-		perror("hci control bind");
+	if (!dbus_connection_set_watch_functions(bluez_bus, ble_scan_add_watch,
+						ble_scan_remove_watch,
+						ble_scan_toggle_watch,
+						NULL, NULL))
 		goto err;
-	}
 
-	flags = fcntl(hci_ctl_sock, F_GETFL);
-	if (flags < 0 || fcntl(hci_ctl_sock, F_SETFL, flags | O_NONBLOCK) < 0) {
-		perror("hci control fcntl");
+	if (!dbus_connection_set_timeout_functions(bluez_bus,
+						  ble_scan_add_timeout,
+						  ble_scan_remove_timeout,
+						  ble_scan_toggle_timeout,
+						  NULL, NULL))
 		goto err;
-	}
 
-	hci_ctl_ev = event_new(pltGetLibEventBase(), hci_ctl_sock,
-			       EV_READ | EV_PERSIST, on_ctl_socket_readable, NULL);
-	if (hci_ctl_ev == NULL) {
-		perror("event_new");
-		goto err;
-	}
+	dbus_connection_set_dispatch_status_function(bluez_bus,
+						     on_dbus_dispatch_status,
+						     NULL, NULL);
 
-	if (event_add(hci_ctl_ev, NULL) < 0) {
-		perror("event_add");
+	if (!dbus_connection_add_filter(bluez_bus, on_dbus_message, NULL, NULL))
 		goto err;
-	}
+
+	dbus_bus_add_match(bluez_bus,
+			   "type='signal',sender='" BLUEZ_SERVICE "',"
+			   "interface='" OBJMGR_IFACE "',"
+			   "member='InterfacesAdded'", NULL);
+	dbus_bus_add_match(bluez_bus,
+			   "type='signal',sender='" BLUEZ_SERVICE "',"
+			   "interface='" OBJMGR_IFACE "',"
+			   "member='InterfacesRemoved'", NULL);
+	dbus_bus_add_match(bluez_bus,
+			   "type='signal',sender='" BLUEZ_SERVICE "',"
+			   "interface='" PROPS_IFACE "',"
+			   "member='PropertiesChanged',"
+			   "arg0='" BLUEZ_ADAPTER_IFACE "'", NULL);
+	dbus_bus_add_match(bluez_bus,
+			   "type='signal',sender='" DBUS_SERVICE_DBUS "',"
+			   "interface='" DBUS_INTERFACE_DBUS "',"
+			   "member='NameOwnerChanged',"
+			   "arg0='" BLUEZ_SERVICE "'", NULL);
 
 	return 0;
 
 err:
-	ble_scan_close_ctl();
+	fprintf(stderr, "failed to set up bluez dbus connection\n");
+	ble_scan_close_bus();
+
 	return -1;
 }
 
@@ -535,8 +1056,8 @@ int ble_scan_open(void)
 {
 	if (!ble_scan_enabled)
 		return 0;
-	
-	if (ble_scan_open_ctl() < 0)
+
+	if (ble_scan_open_bus() < 0)
 		return -1;
 
 	ble_scan_refresh_devices();
@@ -544,28 +1065,16 @@ int ble_scan_open(void)
 	return 0;
 }
 
+/* The scan duty cycle is controlled by bluez, this is only kept as state. */
 void ble_scan_continuous(int cont)
 {
-	int i;
-
-	if (cont == cont_scan)
-		return;
-
 	cont_scan = cont;
-
-	for (i = 0; i < ARRAY_LENGTH(devices); i++) {
-		ble_scan_setup(&devices[i], devices[i].addr_type);
-	}
 }
 
 void ble_scan_close(void)
 {
-	int i;
-
-	for (i = 0; i < ARRAY_LENGTH(devices); i++)
-		ble_scan_close_dev(&devices[i]);
-
-	ble_scan_close_ctl();
+	ble_scan_close_all();
+	ble_scan_close_bus();
 }
 
 void ble_scan_tick(void)
@@ -577,26 +1086,35 @@ void ble_scan_tick(void)
 		return;
 
 	ticks = 10 * TICKS_PER_SEC;
+
+	if (!bluez_bus)
+		return;
+
+	/* Resync with bluez and restart discovery if it stopped. */
 	for (i = 0; i < ARRAY_LENGTH(devices); i++) {
-		if (devices[i].sock >= 0)
-			hci_le_set_scan_enable(devices[i].sock, 1, 0, 1000);
+		struct hci_device *dev = &devices[i];
+
+		if (dev->dev_id == HCI_DEV_NONE)
+			continue;
+
+		if (dev->discovering &&
+		    ble_scan_get_bool(dev, "Discovering") == 0)
+			dev->discovering = 0;
+
+		if (!dev->discovering)
+			ble_scan_start(dev);
 	}
 }
 
 static void on_contscan_changed(struct VeItem *cont)
 {
 	VeVariant val;
-	int i;
 
 	veItemLocalValue(cont, &val);
 	if (!veVariantIsValid(&val))
 		return;
-	if (cont_scan == val.value.SN32)
-		return;
-	cont_scan = val.value.SN32;
-	for (i = 0; i < ARRAY_LENGTH(devices); i++) {
-		ble_scan_setup(&devices[i], devices[i].addr_type);
-	}
+
+	ble_scan_continuous(val.value.SN32 ? 1 : 0);
 }
 
 static void on_ble_enabled_changed(struct VeItem *item)
@@ -616,24 +1134,6 @@ static void on_ble_enabled_changed(struct VeItem *item)
 	}
 }
 
-static void on_scan_type_changed(struct VeItem *item)
-{
-	VeVariant val;
-	int i;
-
-	veItemLocalValue(item, &val);
-	if (!veVariantIsValid(&val))
-		return;
-
-	if (scan_type == val.value.SN32)
-		return;
-
-	scan_type = val.value.SN32;
-	for (i = 0; i < ARRAY_LENGTH(devices); i++) {
-		ble_scan_setup(&devices[i], devices[i].addr_type);
-	}
-}
-
 int ble_scan_init(void)
 {
 	struct VeItem *settings = get_settings();
@@ -643,10 +1143,12 @@ int ble_scan_init(void)
 	int i;
 
 	for (i = 0; i < ARRAY_LENGTH(devices); i++) {
-		devices[i].dev_id  = HCI_DEV_NONE;
-		devices[i].sock	   = -1;
-		devices[i].name[0] = '\0';
-		devices[i].ev	   = NULL;
+		devices[i].dev_id	= HCI_DEV_NONE;
+		devices[i].sock		= -1;
+		devices[i].discovering	= 0;
+		devices[i].name[0]	= '\0';
+		devices[i].path[0]	= '\0';
+		devices[i].ev		= NULL;
 	}
 
 	item = veItemCreateSettingsProxySync(settings, "Settings/BleSensors", ctl, "ContinuousScan",
@@ -663,14 +1165,6 @@ int ble_scan_init(void)
 	veItemLocalValue(item, &val);
 	if (veVariantIsValid(&val)) {
 		ble_scan_enabled = val.value.SN32 ? 1 : 0;
-	}
-
-	item = veItemCreateSettingsProxySync(settings, "Settings/BleSensors", ctl, "ActiveScan",
-					     veVariantFmt, &veUnitNone, &scan_type_props);
-	veItemSetChanged(item, on_scan_type_changed);
-	veItemLocalValue(item, &val);
-	if (veVariantIsValid(&val)) {
-		scan_type = val.value.SN32;
 	}
 
 	return 0;

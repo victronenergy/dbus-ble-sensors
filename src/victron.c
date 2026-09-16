@@ -161,6 +161,7 @@ static int victron_device_init(struct VeItem *droot, const void *data)
 	if (instant_readout_handler->record_type < 0xFF00) {
 		parse_key_setting(pdata, ble_dbus_get_control_item(droot, "Key"));
 	}
+	ble_dbus_create_str(droot, "AdvertisementData", NULL);
 	if (victron_device->dev_info->init)
 		return victron_device->dev_info->init(droot, NULL);
 
@@ -171,6 +172,7 @@ int victron_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len, enum d
 {
 	int i;
 	uint16_t record_type;
+	char advertisement_data[65];
 	char name[24];
 	char dev[16];
 	struct VeItem *droot;
@@ -237,6 +239,13 @@ int victron_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len, enum d
 	if (ble_dbus_check_dup_seq(droot, source, seqnr))
 		return 0;
 
+	// Convert the advertisement data to hex
+	for (size_t i = 0; i < len && i < array_size(advertisement_data) / 2; i++) {
+		advertisement_data[i * 2]     = "0123456789ABCDEF"[(buf[i] >> 4) & 0xF];
+		advertisement_data[i * 2 + 1] = "0123456789ABCDEF"[buf[i] & 0xF];
+	}
+	advertisement_data[len * 2] = '\0';
+
 	if (record_type < 0xFF00) {
 		// Encrypted record, decode it
 		uint8_t decrypted[16];
@@ -263,10 +272,17 @@ int victron_handle_mfg(const bdaddr_t *addr, const uint8_t *buf, int len, enum d
 		if (victron_decode(buf + 8, pdata->key, buf + 5, decrypted, len - 8) < 0)
 			return 0;
 
+		// Replace the encrypted data by the decoded data
+		for (size_t i = 8; i < len && i < array_size(advertisement_data) / 2; i++) {
+			advertisement_data[i * 2]     = "0123456789ABCDEF"[(decrypted[i - 8] >> 4) & 0xF];
+			advertisement_data[i * 2 + 1] = "0123456789ABCDEF"[decrypted[i - 8] & 0xF];
+		}
+
 		ble_dbus_set_regs(droot, decrypted, len - 8);
 	} else {
 		ble_dbus_set_regs(droot, buf + 8, len - 8);
 	}
+	ble_dbus_set_str(droot, "AdvertisementData", advertisement_data);
 	ble_dbus_update(droot);
 
 	return 0;

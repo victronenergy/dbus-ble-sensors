@@ -13,7 +13,7 @@ static const struct reg_info solarsense_adv[] = {
 		.type	= VE_UN32,
 		.offset	= 0 / 8,
 		.shift	= 0 % 8,
-		.name	= "ErrorCode",
+		.name	= "Alarms/RawValue",
 		.format	= &veUnitNone,
 	},
 	{
@@ -73,7 +73,7 @@ static const struct reg_info solarsense_adv[] = {
 		.shift	= 32 % 8,
 		.inval	= 0xff,
 		.flags	= REG_FLAG_INVALID,
-		.name	= "ChrErrorCode",
+		.name	= "ErrorCode",
 		.formatter = formatters_charger_error,
 	},
 	{

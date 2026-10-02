@@ -14,6 +14,7 @@ SRCS += gobius.c
 SRCS += mopeka.c
 SRCS += ruuvi.c
 SRCS += safiery.c
+SRCS += senso4s.c
 SRCS += victron.c
 SRCS += victron-battery_monitor.c
 SRCS += victron-bsc.c

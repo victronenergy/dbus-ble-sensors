@@ -5,6 +5,7 @@
 #include "mopeka.h"
 #include "ruuvi.h"
 #include "safiery.h"
+#include "senso4s.h"
 #include "victron.h"
 
 struct mfg_data_handler {
@@ -17,6 +18,8 @@ static const struct mfg_data_handler mfg_data_handlers[] = {
 	{ MFG_ID_RUUVI,		ruuvi_handle_mfg },
 	{ MFG_ID_NORDIC,	mopeka_handle_mfg },
 	{ MFG_ID_SAFIERY,	safiery_handle_mfg },
+	{ MFG_ID_NORDIC,	senso4s_handle_mfg },
+	{ MFG_ID_SENSO4S,	senso4s_handle_mfg },
 	{ MFG_ID_VICTRON,	victron_handle_mfg },
 	{ MFG_ID_GARNET,	garnet_handle_mfg },
 };

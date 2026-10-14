@@ -335,11 +335,11 @@ static const struct reg_info ruuvi_format6[] = {
  */
 static const char *ruuvi_iaqs_quality(uint32_t score)
 {
-	if (score > 90)
+	if (score >= 90)
 		return "Excellent";
-	if (score > 80)
+	if (score >= 80)
 		return "Good";
-	if (score > 50)
+	if (score >= 50)
 		return "Fair";
 	if (score >= 10)
 		return "Poor";

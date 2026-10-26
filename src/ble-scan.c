@@ -23,6 +23,62 @@
 #define SCAN_INTERVAL	90
 #define SCAN_WINDOW	15
 
+/*
+ * LE extended scanning (Bluetooth 5). A controller accepts either the legacy
+ * or the extended LE command set, whichever is used first after a reset, and
+ * rejects the other with Command Disallowed. The kernel uses the extended
+ * commands whenever the controller supports them, so scanning these with the
+ * legacy commands locks BlueZ out of them: its scans and connections fail.
+ * Use the same command set as the kernel does.
+ */
+#define OCF_LE_SET_EXT_SCAN_PARAMETERS	0x0041
+#define OCF_LE_SET_EXT_SCAN_ENABLE	0x0042
+#define EVT_LE_EXT_ADVERTISING_REPORT	0x0d
+
+/* Supported Commands octet 37, as checked by the kernel's use_ext_scan() */
+#define CMD_LE_SET_EXT_SCAN_PARAMETERS	0x20
+#define CMD_LE_SET_EXT_SCAN_ENABLE	0x40
+
+#define LE_SCAN_PHY_1M			0x01
+#define LE_SCAN_PASSIVE			0x00
+
+/* Event type, bits 5-6: data status */
+#define LE_EXT_ADV_DATA_STATUS_MASK	0x0060
+#define LE_EXT_ADV_DATA_COMPLETE	0x0000
+
+typedef struct {
+	uint8_t		own_addr_type;
+	uint8_t		filter_policy;
+	uint8_t		scanning_phys;
+	uint8_t		type;
+	uint16_t	interval;
+	uint16_t	window;
+} __attribute__ ((packed)) le_set_ext_scan_parameters_cp;
+
+typedef struct {
+	uint8_t		enable;
+	uint8_t		filter_dup;
+	uint16_t	duration;
+	uint16_t	period;
+} __attribute__ ((packed)) le_set_ext_scan_enable_cp;
+
+typedef struct {
+	uint16_t	evt_type;
+	uint8_t		bdaddr_type;
+	bdaddr_t	bdaddr;
+	uint8_t		primary_phy;
+	uint8_t		secondary_phy;
+	uint8_t		sid;
+	int8_t		tx_power;
+	int8_t		rssi;
+	uint16_t	interval;
+	uint8_t		direct_bdaddr_type;
+	bdaddr_t	direct_bdaddr;
+	uint8_t		length;
+	uint8_t		data[0];
+} __attribute__ ((packed)) le_ext_advertising_info;
+#define LE_EXT_ADVERTISING_INFO_SIZE	24
+
 struct mgmt_hdr {
 	uint16_t opcode;
 	uint16_t index;
@@ -43,6 +99,7 @@ struct hci_device {
 	uint16_t dev_id;
 	int sock;
 	int addr_type;
+	int ext;	/* use the LE extended scanning commands */
 	char name[NAME_SIZE];
 	struct event *ev;
 };
@@ -67,6 +124,73 @@ static struct VeSettingProperties continuous_scan_props = {
 	.max.value.SN32 = 1,
 };
 
+static int ble_le_send(int sock, uint16_t ocf, void *cp, int clen)
+{
+	struct hci_request rq = {
+		.ogf	= OGF_LE_CTL,
+		.ocf	= ocf,
+		.cparam	= cp,
+		.clen	= clen,
+	};
+	uint8_t status;
+
+	rq.rparam = &status;
+	rq.rlen = 1;
+
+	if (hci_send_req(sock, &rq, 1000) < 0)
+		return -1;
+
+	if (status) {
+		errno = EIO;
+		return -1;
+	}
+
+	return 0;
+}
+
+static int ble_scan_enable(struct hci_device *dev, uint8_t enable, uint8_t filter_dup)
+{
+	le_set_ext_scan_enable_cp cp = {
+		.enable		= enable,
+		.filter_dup	= filter_dup,
+	};
+
+	if (!dev->ext)
+		return hci_le_set_scan_enable(dev->sock, enable, filter_dup, 1000);
+
+	return ble_le_send(dev->sock, OCF_LE_SET_EXT_SCAN_ENABLE, &cp, sizeof(cp));
+}
+
+static int ble_scan_parameters(struct hci_device *dev, int interval, int addr_type)
+{
+	le_set_ext_scan_parameters_cp cp = {
+		.own_addr_type	= addr_type,
+		.scanning_phys	= LE_SCAN_PHY_1M,
+		.type		= LE_SCAN_PASSIVE,
+		.interval	= htobs(interval),
+		.window		= htobs(SCAN_WINDOW),
+	};
+
+	if (!dev->ext)
+		return hci_le_set_scan_parameters(dev->sock, LE_SCAN_PASSIVE,
+						  htobs(interval), htobs(SCAN_WINDOW),
+						  addr_type, 0, 1000);
+
+	return ble_le_send(dev->sock, OCF_LE_SET_EXT_SCAN_PARAMETERS, &cp, sizeof(cp));
+}
+
+/* Whether the kernel drives this controller with the extended commands */
+static int ble_scan_use_ext(int sock)
+{
+	uint8_t commands[64];
+
+	if (hci_read_local_commands(sock, commands, 1000) < 0)
+		return 0;
+
+	return (commands[37] & CMD_LE_SET_EXT_SCAN_PARAMETERS) &&
+	       (commands[37] & CMD_LE_SET_EXT_SCAN_ENABLE);
+}
+
 static int ble_scan_setup(struct hci_device *dev, int addr_type)
 {
 	int interval = cont_scan ? SCAN_WINDOW : SCAN_INTERVAL;
@@ -75,15 +199,13 @@ static int ble_scan_setup(struct hci_device *dev, int addr_type)
 	if (dev->sock < 0)
 		return 0;
 
-	hci_le_set_scan_enable(dev->sock, 0, 1, 1000);
+	ble_scan_enable(dev, 0, 1);
 
-	err = hci_le_set_scan_parameters(dev->sock, 0,
-					 htobs(interval), htobs(SCAN_WINDOW),
-					 addr_type, 0, 1000);
+	err = ble_scan_parameters(dev, interval, addr_type);
 	if (err < 0)
 		return -2;
 
-	err = hci_le_set_scan_enable(dev->sock, 1, 0, 1000);
+	err = ble_scan_enable(dev, 1, 0);
 	if (err < 0)
 		return -1;
 
@@ -122,7 +244,7 @@ static void ble_scan_close_dev(struct hci_device *dev)
 		if (flags > 0)
 			fcntl(dev->sock, F_SETFL, flags & ~O_NONBLOCK);
 
-		hci_le_set_scan_enable(dev->sock, 0, 1, 1000);
+		ble_scan_enable(dev, 0, 1);
 		hci_close_dev(dev->sock);
 		dev->sock = -1;
 	}
@@ -135,6 +257,7 @@ static void ble_scan_close_dev(struct hci_device *dev)
 
 	dev->dev_id    = HCI_DEV_NONE;
 	dev->addr_type = LE_PUBLIC_ADDRESS;
+	dev->ext       = 0;
 }
 
 static void ble_scan_close_dev_id(uint16_t device_id) {
@@ -145,6 +268,36 @@ static void ble_scan_close_dev_id(uint16_t device_id) {
 			ble_scan_close_dev(&devices[i]);
 			return;
 		}
+	}
+}
+
+static void ble_scan_parse_ext_adv(const uint8_t *msg, int len)
+{
+	const le_ext_advertising_info *adv;
+	int num_reports;
+
+	if (len < 1)
+		return;
+
+	num_reports = msg[0];
+	msg++;
+	len--;
+
+	while (num_reports-- > 0 && len >= LE_EXT_ADVERTISING_INFO_SIZE) {
+		adv = (const le_ext_advertising_info *)msg;
+		msg += LE_EXT_ADVERTISING_INFO_SIZE;
+		len -= LE_EXT_ADVERTISING_INFO_SIZE;
+
+		if (len < adv->length)
+			return;
+
+		/* Skip advertising data split over several reports */
+		if ((btohs(adv->evt_type) & LE_EXT_ADV_DATA_STATUS_MASK) == LE_EXT_ADV_DATA_COMPLETE &&
+		    ble_scan_enabled)
+			ble_parse_adv(&adv->bdaddr, adv->data, adv->length, DATA_SOURCE_BLE);
+
+		msg += adv->length;
+		len -= adv->length;
 	}
 }
 
@@ -193,11 +346,20 @@ static void on_dev_socket_readable(evutil_socket_t fd, short events, void *ctx)
 			continue;
 
 		mev = (evt_le_meta_event *)msg;
-		msg += EVT_LE_META_EVENT_SIZE + 1;
-		len -= EVT_LE_META_EVENT_SIZE + 1;
+		msg += EVT_LE_META_EVENT_SIZE;
+		len -= EVT_LE_META_EVENT_SIZE;
+
+		if (mev->subevent == EVT_LE_EXT_ADVERTISING_REPORT) {
+			ble_scan_parse_ext_adv(msg, len);
+			continue;
+		}
 
 		if (mev->subevent != EVT_LE_ADVERTISING_REPORT)
 			continue;
+
+		/* Skip the number of reports; only the first one is parsed */
+		msg++;
+		len--;
 
 		if (len < LE_ADVERTISING_INFO_SIZE)
 			continue;
@@ -261,6 +423,9 @@ static void ble_scan_open_dev(int id)
 		perror("HCIDEVUP");
 		goto err;
 	}
+
+	dev->ext = ble_scan_use_ext(hci_sock);
+	fprintf(stderr, "hci%d: %s scanning\n", id, dev->ext ? "extended" : "legacy");
 
 	err = ble_scan_setup(dev, LE_RANDOM_ADDRESS);
 	if (err < 0)
@@ -563,7 +728,7 @@ void ble_scan_tick(void)
 	ticks = 10 * TICKS_PER_SEC;
 	for (i = 0; i < ARRAY_LENGTH(devices); i++) {
 		if (devices[i].sock >= 0)
-			hci_le_set_scan_enable(devices[i].sock, 1, 0, 1000);
+			ble_scan_enable(&devices[i], 1, 0);
 	}
 }
 
